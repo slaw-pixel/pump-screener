@@ -126,43 +126,44 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         vertical_spacing=0.02,
     )
 
-    # Session background shading (gray for extended hours, white for regular)
-    GRAY = "rgba(120,120,120,0.18)"
-    for row in (1, 2):
-        if not post_r.empty:
-            fig.add_vrect(
-                x0=_dt(pm_date, 16, 0), x1=_dt(pm_date, 20, 0),
-                fillcolor=GRAY, line_width=0,
-                annotation_text="POST" if row == 1 else "",
-                annotation_position="top left",
-                annotation_font=dict(color="#555", size=10),
-                row=row, col=1,
-            )
-        if not pre_r.empty:
-            fig.add_vrect(
-                x0=_dt(next_date, 4, 0), x1=_dt(next_date, 9, 30),
-                fillcolor=GRAY, line_width=0,
-                annotation_text="PRE" if row == 1 else "",
-                annotation_position="top left",
-                annotation_font=dict(color="#555", size=10),
-                row=row, col=1,
-            )
-        # Intraday: no shading (regular session = white background)
+    # Session background shading — use actual bar timestamps as boundaries
+    # because add_vrect with fixed times breaks when rangebreaks compress the axis.
+    # add_shape(yref="paper") spans both subplots in one call.
+    GRAY_BG = "rgba(180,180,180,0.22)"
+    BAR_W   = datetime.timedelta(minutes=15)
 
-    # Session boundary vertical lines (solid, spanning both subplots via yref=paper)
+    def _shade(x0_dt: datetime.datetime, x1_dt: datetime.datetime, label: str) -> None:
+        fig.add_shape(
+            type="rect", xref="x", yref="paper",
+            x0=x0_dt, x1=x1_dt, y0=0, y1=1,
+            fillcolor=GRAY_BG, line_width=0, layer="below",
+        )
+        fig.add_annotation(
+            x=x0_dt, y=0.98, xref="x", yref="paper",
+            text=label, showarrow=False,
+            xanchor="left", yanchor="top",
+            font=dict(color="#555", size=10),
+        )
+
     def _sep(x_val: datetime.datetime) -> None:
         fig.add_shape(
             type="line", xref="x", yref="paper",
             x0=x_val, x1=x_val, y0=0, y1=1,
-            line=dict(color="#888888", width=1),
-            opacity=0.6,
+            line=dict(color="#888888", width=1), opacity=0.6,
         )
 
     if not post_r.empty:
-        _sep(_dt(pm_date, 20, 0))
+        p0 = post_r["ts"].iloc[0]
+        p1 = post_r["ts"].iloc[-1] + BAR_W
+        _shade(p0, p1, "POST")
+        _sep(p1)
+
     if not pre_r.empty:
-        _sep(_dt(next_date, 4, 0))
-        _sep(_dt(next_date, 9, 30))
+        r0 = pre_r["ts"].iloc[0]
+        r1 = pre_r["ts"].iloc[-1] + BAR_W
+        _shade(r0, r1, "PRE")
+        _sep(r1)
+    # Intraday: no shading (white = regular session)
 
     # Candlestick
     fig.add_trace(go.Candlestick(
