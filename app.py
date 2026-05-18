@@ -40,7 +40,7 @@ day_before = prev_trading_day(yesterday)
 
 c_mode, c_info, c_d1, c_d2, c_btn = st.columns([1.1, 1.3, 1.1, 1.1, 0.8])
 
-mode = c_mode.radio("", ["Сегодня", "Вчера", "Даты"], horizontal=False,
+mode = c_mode.radio("Период", ["Сегодня", "Вчера", "Даты"], horizontal=False,
                     label_visibility="collapsed")
 
 if mode == "Сегодня":
@@ -126,12 +126,11 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         vertical_spacing=0.02,
     )
 
-    # Session background shading — use actual bar timestamps as boundaries
-    # because add_vrect with fixed times breaks when rangebreaks compress the axis.
-    # add_shape(yref="paper") spans both subplots in one call.
-    POST_BG = "rgba(210,200,185,0.28)"   # warm light beige for POST
-    PRE_BG  = "rgba(165,175,190,0.28)"   # cool blue-gray for PRE
-    BAR_W   = datetime.timedelta(minutes=15)
+    # Session background shading — use fixed session boundaries with add_shape.
+    # add_shape(xref="x", yref="paper") works correctly with rangebreaks
+    # because the session boundary times are within the visible axis range.
+    POST_BG = "rgba(210,200,185,0.30)"   # warm beige for POST
+    PRE_BG  = "rgba(165,175,195,0.30)"   # cool blue-gray for PRE
 
     def _shade(x0_dt: datetime.datetime, x1_dt: datetime.datetime,
                label: str, color: str) -> None:
@@ -155,16 +154,12 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         )
 
     if not post_r.empty:
-        p0 = post_r["ts"].iloc[0]
-        p1 = post_r["ts"].iloc[-1] + BAR_W
-        _shade(p0, p1, "POST", POST_BG)
-        _sep(p1)
+        _shade(_dt(pm_date, 16, 0), _dt(pm_date, 20, 0), "POST", POST_BG)
+        _sep(_dt(pm_date, 20, 0))
 
     if not pre_r.empty:
-        r0 = pre_r["ts"].iloc[0]
-        r1 = pre_r["ts"].iloc[-1] + BAR_W
-        _shade(r0, r1, "PRE", PRE_BG)
-        _sep(r1)
+        _shade(_dt(next_date, 4, 0), _dt(next_date, 9, 30), "PRE", PRE_BG)
+        _sep(_dt(next_date, 9, 30))
     # Intraday: no shading (white = regular session)
 
     # Candlestick
@@ -261,6 +256,15 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     )
     rangebreaks = [dict(bounds=["sat","mon"]), dict(bounds=[20, 4], pattern="hour")]
     fig.update_xaxes(rangebreaks=rangebreaks)
+    # Time labels on the bottom x-axis (row 2)
+    fig.update_layout(
+        xaxis2=dict(
+            tickformat="%H:%M<br>%b %d",
+            dtick=3600000,           # tick every 1 hour (ms)
+            tickangle=0,
+            gridcolor="#ebebeb",
+        )
+    )
     return fig
 
 
