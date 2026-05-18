@@ -203,44 +203,58 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
             bgcolor="rgba(255,255,255,0.75)", borderpad=2,
         )
 
-    # Float cumsum marker — purple dotted line where cumulative volume crosses float
+    # Float cumsum marker — orange dot on price chart at the moment 1×Float is reached
     if float_shares and float_shares > 0:
-        cumvol, float_ts = 0.0, None
+        cumvol, float_ts, float_price = 0.0, None, None
         for _, bar_row in all_bars.sort_values("ts").iterrows():
             cumvol += bar_row["volume"]
             if cumvol >= float_shares:
                 float_ts = bar_row["ts"]
+                float_price = bar_row["close"]
                 break
         if float_ts is not None:
-            fig.add_shape(
-                type="line", xref="x", yref="paper",
-                x0=float_ts, x1=float_ts, y0=0, y1=1,
-                line=dict(color="#9c27b0", width=1.5, dash="dot"),
-                opacity=0.85,
-            )
+            fig.add_trace(go.Scatter(
+                x=[float_ts], y=[float_price],
+                mode="markers",
+                marker=dict(color="orange", size=10, symbol="circle",
+                            line=dict(color="#e65100", width=1.5)),
+                showlegend=False, name="1×Float",
+            ), row=1, col=1)
             fig.add_annotation(
                 x=float_ts, y=max_vol,
                 xref="x", yref="y2",
                 text="1×Float",
                 showarrow=False, yanchor="top",
-                font=dict(color="#9c27b0", size=9),
+                font=dict(color="#e65100", size=9),
                 bgcolor="rgba(255,255,255,0.8)", borderpad=2,
             )
 
-    # Reference lines
-    for level, label, color in [
-        (r.get("pm_high"),  "POST High", "#b36b00"),
-        (r.get("pre_high"), "PRE High",  "#0277bd"),
-    ]:
-        if level:
-            fig.add_hline(
-                y=level, line_dash="dash", line_color=color,
-                line_width=1.5, opacity=0.8,
-                annotation_text=f"{label} {level:.2f}",
-                annotation_position="right",
-                annotation_font=dict(color=color, size=11),
-                row=1, col=1,
-            )
+    # Reference lines — one dashed line at the overall high (POST or PRE, whichever is higher)
+    # plus a solid blue line at regular close
+    pm_high  = r.get("pm_high")
+    pre_high = r.get("pre_high")
+    candidates = [(v, lbl) for v, lbl in [(pm_high, "POST High"), (pre_high, "PRE High")] if v]
+    if candidates:
+        top_level, top_label = max(candidates, key=lambda x: x[0])
+        fig.add_hline(
+            y=top_level, line_dash="dash", line_color="#e53935",
+            line_width=1.5, opacity=0.85,
+            annotation_text=f"{top_label} {top_level:.2f}",
+            annotation_position="right",
+            annotation_font=dict(color="#e53935", size=11),
+            row=1, col=1,
+        )
+
+    reg_close = r.get("reg_close")
+    if reg_close:
+        fig.add_hline(
+            y=reg_close, line_color="#1565c0",
+            line_width=1.2, opacity=0.8,
+            annotation_text=f"Close {reg_close:.2f}",
+            annotation_position="right",
+            annotation_font=dict(color="#1565c0", size=10),
+            row=1, col=1,
+        )
 
     fig.update_layout(
         xaxis_rangeslider_visible=False,
