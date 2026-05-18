@@ -126,50 +126,28 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         vertical_spacing=0.02,
     )
 
-    # Session background bands
+    # Session background shading (gray for extended hours, white for regular)
+    GRAY = "rgba(150,150,150,0.13)"
     for row in (1, 2):
         if not post_r.empty:
             fig.add_vrect(
                 x0=_dt(pm_date, 16, 0), x1=_dt(pm_date, 20, 0),
-                fillcolor="rgba(245,166,35,0.10)", line_width=0,
+                fillcolor=GRAY, line_width=0,
                 annotation_text="POST" if row == 1 else "",
                 annotation_position="top left",
-                annotation_font=dict(color="#b36b00", size=11),
+                annotation_font=dict(color="#555", size=10),
                 row=row, col=1,
             )
         if not pre_r.empty:
             fig.add_vrect(
                 x0=_dt(next_date, 4, 0), x1=_dt(next_date, 9, 30),
-                fillcolor="rgba(79,195,247,0.10)", line_width=0,
+                fillcolor=GRAY, line_width=0,
                 annotation_text="PRE" if row == 1 else "",
                 annotation_position="top left",
-                annotation_font=dict(color="#0277bd", size=11),
+                annotation_font=dict(color="#555", size=10),
                 row=row, col=1,
             )
-        if not intra_r.empty:
-            fig.add_vrect(
-                x0=_dt(next_date, 9, 30), x1=_dt(next_date, 16, 0),
-                fillcolor="rgba(100,200,100,0.05)", line_width=0,
-                annotation_text="Intraday" if row == 1 else "",
-                annotation_position="top left",
-                annotation_font=dict(color="#2d6a2d", size=11),
-                row=row, col=1,
-            )
-
-    # Session boundary lines spanning both subplots (yref="paper" = full figure height)
-    def _vline(x_val: datetime.datetime, color: str) -> None:
-        fig.add_shape(
-            type="line", xref="x", yref="paper",
-            x0=x_val, x1=x_val, y0=0, y1=1,
-            line=dict(color=color, width=1.5, dash="dash"),
-            opacity=0.75,
-        )
-
-    if not post_r.empty:
-        _vline(_dt(pm_date, 20, 0), "#e0a030")
-    if not pre_r.empty:
-        _vline(_dt(next_date, 4, 0), "#4fc3f7")
-        _vline(_dt(next_date, 9, 30), "#5cb85c")
+        # Intraday: no shading (regular session = white background)
 
     # Candlestick
     fig.add_trace(go.Candlestick(
@@ -376,8 +354,17 @@ def render(result: dict) -> None:
     # Sort by high_time ascending (chronological order of when high was set)
     all_rows.sort(key=lambda r: r.get("high_time") or datetime.datetime.max.replace(tzinfo=UTC))
 
+    earnings_rows = [r for r in all_rows if r.get("has_earnings")]
+    other_rows    = [r for r in all_rows if not r.get("has_earnings")]
+
     st.divider()
-    for r in all_rows:
+    if earnings_rows:
+        st.markdown("### 🟡 На репорте")
+        for r in earnings_rows:
+            render_ticker(r, bars, pm_d, nx_d)
+        if other_rows:
+            st.divider()
+    for r in other_rows:
         render_ticker(r, bars, pm_d, nx_d)
 
 
