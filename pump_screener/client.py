@@ -1,0 +1,100 @@
+"""Polygon.io API wrapper — authentication, ticker cache, minute bars."""
+import datetime
+import os
+import time
+
+from polygon import RESTClient
+
+from . import config
+
+_client: RESTClient | None = None
+
+
+def get_client() -> RESTClient:
+    global _client
+    if _client is None:
+        key = config.POLYGON_API_KEY
+        if not key:
+            raise RuntimeError(
+                "POLYGON_API_KEY not set.\n"
+                "Create a .env file with: POLYGON_API_KEY=your_key_here"
+            )
+        _client = RESTClient(api_key=key)
+    return _client
+
+
+def prev_trading_day(d: datetime.date) -> datetime.date:
+    d -= datetime.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= datetime.timedelta(days=1)
+    return d
+
+
+def load_tickers() -> list[str]:
+    cache_file = config.TICKER_CACHE_FILE
+    if os.path.exists(cache_file):
+        age = datetime.datetime.now().timestamp() - os.path.getmtime(cache_file)
+        if age < config.TICKER_CACHE_SECONDS:
+            with open(cache_file) as f:
+                tickers = [line.strip() for line in f if line.strip()]
+            hours_left = int((config.TICKER_CACHE_SECONDS - age) / 3600)
+            print(f"  Кэш: {len(tickers)} тикеров (обновится через {hours_left}ч)")
+            return tickers
+
+    print("  Загружаю тикеры с API (маркеткап <= $300M)...")
+    client = get_client()
+    tickers: list[str] = []
+    skipped = 0
+    page = 0
+    try:
+        for t in client.list_tickers(market="stocks", type="CS", active=True, limit=1000):
+            mc = getattr(t, "market_cap", None)
+            if mc is None or mc <= config.MAX_MARKET_CAP:
+                tickers.append(t.ticker)
+            else:
+                skipped += 1
+            page += 1
+            if page % 1000 == 0:
+                print(f"  ...{page} обработано, найдено {len(tickers)}", end="\r")
+    except Exception as e:
+        print(f"  Ошибка API: {e}")
+
+    print(f"  Найдено: {len(tickers):,}  отсеяно (>$300M): {skipped:,}  всего: {page:,}")
+    with open(cache_file, "w") as f:
+        f.write("\n".join(tickers))
+    print(f"  Кэш сохранён: {cache_file}")
+    return tickers
+
+
+def get_bars(ticker: str, date_str: str) -> list:
+    try:
+        return list(
+            get_client().list_aggs(
+                ticker=ticker,
+                multiplier=1,
+                timespan="minute",
+                from_=date_str,
+                to=date_str,
+                adjusted=False,
+                sort="asc",
+                limit=1000,
+            )
+        )
+    except Exception:
+        return []
+
+
+def get_snapshots(tickers: list[str]) -> dict:
+    client = get_client()
+    snapshots: dict = {}
+    for i in range(0, len(tickers), config.SNAPSHOT_CHUNK):
+        chunk = tickers[i : i + config.SNAPSHOT_CHUNK]
+        try:
+            for s in client.get_snapshot_all("stocks", tickers=chunk):
+                snapshots[s.ticker] = s
+        except Exception:
+            pass
+        done = min(i + config.SNAPSHOT_CHUNK, len(tickers))
+        print(f"  {done}/{len(tickers)}", end="\r")
+        time.sleep(0.1)
+    return snapshots

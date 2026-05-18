@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pump-screener"
+version = "0.1.0"
+description = "Small-cap overnight pump scanner using Polygon.io minute bars"
+requires-python = ">=3.12"
+dependencies = [
+    "polygon-api-client>=1.14",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+pump-screener = "pump_screener.cli:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
