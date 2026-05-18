@@ -23,5 +23,5 @@ MIN_PREMKT_FLOW:    int   = 2_000_000     # pre-market money flow ($2M)
 EXTRA_TICKERS:        list[str] = []   # manually added tickers
 TICKER_CACHE_SECONDS: int       = 86_400
 TICKER_CACHE_FILE:    str       = "ticker_cache.txt"
-FETCH_WORKERS:        int       = 10
+FETCH_WORKERS:        int       = 48
 SNAPSHOT_CHUNK:       int       = 250

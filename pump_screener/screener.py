@@ -42,6 +42,7 @@ def _classify(
         reg_close=reg_close, pm_high=pm_high, pm_move=pm_move, pm_vol=pm_vol,
         pre_high=pre_high, pre_move=pre_move, pre_vol=pre_vol, pre_flow=pre_flow,
         intra_h=intra_h, gap=gap,
+        intra_vol_15=s_nx["intra_volume_15"],
     )
 
     # Block A — PM pump, high not broken in PRE or intraday
@@ -175,5 +176,9 @@ def _print_results(
         rows.sort(key=lambda r: r["sort_key"] or 0, reverse=True)
         for r in rows:
             move = r["move_info"] or f"InitialMov={fmt(r['sort_key'])}%"
+            vol_pm    = fmt_vol(r["pm_vol"])
+            vol_pre   = fmt_vol(r["pre_vol"])
+            vol_intra = fmt_vol(r["intra_vol_15"])
             print(f"  {r['ticker']:<7}  {move}")
+            print(f"           PM({pm_date}): {vol_pm:<8}  PRE: {vol_pre:<8}  INTRA до 15:00: {vol_intra}")
         print(sep)
