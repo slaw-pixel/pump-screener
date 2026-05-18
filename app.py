@@ -7,7 +7,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from zoneinfo import ZoneInfo
 
-from pump_screener.client import prev_trading_day
+from pump_screener.client import get_splits_today, prev_trading_day
 from pump_screener.screener import screen as run_screen
 from pump_screener.sessions import fmt_vol
 
@@ -30,6 +30,12 @@ st.markdown("""
 
 BLOCK_COLOR = {"A": "#856404", "B": "#0a58ca", "C": "#0f5132"}
 BLOCK_LABEL = {"A": "Блок A", "B": "Блок B", "C": "Блок C"}
+
+# ── Splits today ──────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def _load_splits(date_str: str) -> list[dict]:
+    return get_splits_today(date_str)
+
 
 # ── Top controls ──────────────────────────────────────────────
 st.markdown("## 📈 Pump Screener")
@@ -55,6 +61,25 @@ else:
     pm_date, next_date, is_today = d1.isoformat(), d2.isoformat(), (d2 == today)
 
 run_btn = c_btn.button("🔍 Запустить", width="stretch", type="primary")
+
+# Splits banner — always visible at top
+_splits = _load_splits(today.isoformat())
+if _splits:
+    _forward = [s for s in _splits if not s["reverse"]]
+    _reverse = [s for s in _splits if s["reverse"]]
+    parts = []
+    if _forward:
+        items = "  ".join(
+            f"**{s['ticker']}** {s['split_to']}:{s['split_from']}" for s in _forward
+        )
+        parts.append(f"✂️ **Сплиты:** {items}")
+    if _reverse:
+        items = "  ".join(
+            f"**{s['ticker']}** {s['split_to']}:{s['split_from']}" for s in _reverse
+        )
+        parts.append(f"🔄 **Реверс:** {items}")
+    st.info("  &nbsp;|&nbsp;  ".join(parts), icon=None)
+
 st.divider()
 
 
@@ -216,8 +241,8 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
             fig.add_trace(go.Scatter(
                 x=[float_ts], y=[float_price],
                 mode="markers",
-                marker=dict(color="orange", size=10, symbol="circle",
-                            line=dict(color="#e65100", width=1.5)),
+                marker=dict(color="#9c27b0", size=11, symbol="circle",
+                            line=dict(color="#6a0080", width=1.5)),
                 showlegend=False, name="1×Float",
             ), row=1, col=1)
             fig.add_annotation(
@@ -225,7 +250,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
                 xref="x", yref="y2",
                 text="1×Float",
                 showarrow=False, yanchor="top",
-                font=dict(color="#e65100", size=9),
+                font=dict(color="#9c27b0", size=9),
                 bgcolor="rgba(255,255,255,0.8)", borderpad=2,
             )
 
@@ -273,7 +298,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     # Time labels on the bottom x-axis (row 2)
     fig.update_layout(
         xaxis2=dict(
-            tickformat="%H:%M<br>%b %d",
+            tickformat="%H:%M",
             dtick=3600000,           # tick every 1 hour (ms)
             tickangle=0,
             gridcolor="#ebebeb",

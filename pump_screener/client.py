@@ -102,13 +102,13 @@ def has_earnings_news(ticker: str, pm_date: str) -> bool:
     """Return True if earnings-related news was published around pm_date."""
     try:
         d    = datetime.date.fromisoformat(pm_date)
-        from_ = (d - datetime.timedelta(days=1)).isoformat() + "T00:00:00Z"
+        from_ = (d - datetime.timedelta(days=2)).isoformat() + "T00:00:00Z"
         to_   = (d + datetime.timedelta(days=1)).isoformat() + "T23:59:59Z"
         for news in get_client().list_ticker_news(
             ticker,
             published_utc_gte=from_,
             published_utc_lte=to_,
-            limit=15,
+            limit=50,
         ):
             text = (
                 (getattr(news, "title",       "") or "") + " " +
@@ -119,6 +119,29 @@ def has_earnings_news(ticker: str, pm_date: str) -> bool:
     except Exception:
         pass
     return False
+
+
+def get_splits_today(date_str: str) -> list[dict]:
+    """Return tickers that have a stock split executing on date_str."""
+    client = get_client()
+    results = []
+    try:
+        for s in client.list_splits(
+            execution_date_gte=date_str,
+            execution_date_lte=date_str,
+            limit=100,
+        ):
+            split_from = getattr(s, "split_from", None)
+            split_to   = getattr(s, "split_to",   None)
+            results.append({
+                "ticker":     s.ticker,
+                "split_from": split_from,
+                "split_to":   split_to,
+                "reverse":    bool(split_to and split_from and split_to < split_from),
+            })
+    except Exception:
+        pass
+    return results
 
 
 def get_float_shares(tickers: list[str]) -> dict[str, float | None]:
