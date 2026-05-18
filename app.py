@@ -24,13 +24,23 @@ st.markdown("""
 <style>
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1.2rem; padding-bottom: 1rem; }
-    [data-testid="metric-container"] {
-        background: #1a1a2e; border-radius: 8px; padding: 10px 14px;
+    .ticker-card {
+        border: 1px solid #e0e0e0; border-radius: 8px;
+        padding: 12px 16px; margin-bottom: 12px;
     }
-    .stTabs [data-baseweb="tab"] { font-size: 1rem; font-weight: 600; }
+    .ticker-card-earnings {
+        border: 1px solid #f0c000; border-radius: 8px;
+        padding: 12px 16px; margin-bottom: 12px;
+        background: rgba(255, 200, 0, 0.07);
+    }
+    .block-badge-A { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.8rem; }
+    .block-badge-B { background:#cfe2ff; color:#0a58ca; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.8rem; }
+    .block-badge-C { background:#d1e7dd; color:#0f5132; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
+BLOCK_COLOR = {"A": "#856404", "B": "#0a58ca", "C": "#0f5132"}
+BLOCK_LABEL = {"A": "Блок A", "B": "Блок B", "C": "Блок C"}
 
 # ── Top controls ──────────────────────────────────────────────
 st.markdown("## 📈 Pump Screener")
@@ -39,7 +49,7 @@ today      = datetime.date.today()
 yesterday  = prev_trading_day(today)
 day_before = prev_trading_day(yesterday)
 
-c_mode, c_info, c_d1, c_d2, c_btn = st.columns([1.2, 1.4, 1.2, 1.2, 0.9])
+c_mode, c_info, c_d1, c_d2, c_btn = st.columns([1.1, 1.3, 1.1, 1.1, 0.8])
 
 mode = c_mode.radio("", ["Сегодня", "Вчера", "Даты"], horizontal=False,
                     label_visibility="collapsed")
@@ -59,36 +69,7 @@ run_btn = c_btn.button("🔍 Запустить", use_container_width=True, type
 st.divider()
 
 
-# ── Color helpers (no matplotlib needed) ─────────────────────
-def _cell_color(val: float | None, vmax: float, rgb_hi: tuple) -> str:
-    """Light-to-color gradient. Always black text."""
-    if val is None or (isinstance(val, float) and pd.isna(val)):
-        return ""
-    norm = min(max(val / vmax, 0), 1)
-    r = int(255 - (255 - rgb_hi[0]) * norm)
-    g = int(255 - (255 - rgb_hi[1]) * norm)
-    b = int(255 - (255 - rgb_hi[2]) * norm)
-    return f"background-color: rgb({r},{g},{b}); color: #000"
-
-
-def style_table(df: pd.DataFrame):
-    def pm_color(v):  return _cell_color(v, 200, (255, 160, 40))
-    def pre_color(v): return _cell_color(v, 200, (60,  150, 230))
-    def gap_color(v): return _cell_color(v, 100, (60,  180, 80))
-
-    def _fmt(v):
-        return f"{v:.1f}%" if v is not None and not pd.isna(v) else "—"
-
-    return (
-        df.style
-        .format({"PM Move%": _fmt, "Gap%": _fmt, "PRE Move%": _fmt})
-        .map(pm_color,  subset=["PM Move%"])
-        .map(pre_color, subset=["PRE Move%"])
-        .map(gap_color, subset=["Gap%"])
-    )
-
-
-# ── Chart (light background + session bands) ──────────────────
+# ── Chart ─────────────────────────────────────────────────────
 def _to_df(bars: list) -> pd.DataFrame:
     rows = []
     for b in bars:
@@ -97,11 +78,10 @@ def _to_df(bars: list) -> pd.DataFrame:
             "ts":      ts,
             "open":    b.open,  "high":  b.high,
             "low":     b.low,   "close": b.close,
-            "volume":  getattr(b, "volume", 0) or 0,
             "minutes": ts.hour * 60 + ts.minute,
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame(
-        columns=["ts","open","high","low","close","volume","minutes"])
+        columns=["ts","open","high","low","close","minutes"])
 
 
 def build_chart(bars_pm: list, bars_nx: list, r: dict,
@@ -112,38 +92,44 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     def seg(df: pd.DataFrame, m0: int, m1: int) -> pd.DataFrame:
         return df[(df.minutes >= m0) & (df.minutes < m1)]
 
-    reg_tail = seg(df_pm, 9*60+30, 16*60).tail(90)
+    # Only show PM + PRE + Intraday (no regular session — too noisy)
     pm_bars  = seg(df_pm, 16*60,   20*60)
     pre_bars = seg(df_nx, 4*60,    9*60+30)
     intra    = seg(df_nx, 9*60+30, 16*60)
 
-    all_bars = pd.concat([reg_tail, pm_bars, pre_bars, intra])
+    all_bars = pd.concat([pm_bars, pre_bars, intra])
     if all_bars.empty:
         return go.Figure()
 
-    fig = go.Figure()
-
-    # Session background bands
     def _dt(date_str: str, hour: int, minute: int) -> datetime.datetime:
         d = datetime.date.fromisoformat(date_str)
         return datetime.datetime(d.year, d.month, d.day, hour, minute, tzinfo=ET)
 
+    fig = go.Figure()
+
+    # Session background bands
     if not pm_bars.empty:
         fig.add_vrect(
             x0=_dt(pm_date, 16, 0), x1=_dt(pm_date, 20, 0),
-            fillcolor="rgba(245,166,35,0.12)", line_width=0,
+            fillcolor="rgba(245,166,35,0.10)", line_width=0,
             annotation_text="PM", annotation_position="top left",
-            annotation_font=dict(color="#c47d10", size=11),
+            annotation_font=dict(color="#b36b00", size=11),
         )
     if not pre_bars.empty:
         fig.add_vrect(
             x0=_dt(next_date, 4, 0), x1=_dt(next_date, 9, 30),
-            fillcolor="rgba(79,195,247,0.12)", line_width=0,
+            fillcolor="rgba(79,195,247,0.10)", line_width=0,
             annotation_text="PRE", annotation_position="top left",
-            annotation_font=dict(color="#0288d1", size=11),
+            annotation_font=dict(color="#0277bd", size=11),
+        )
+    if not intra.empty:
+        fig.add_vrect(
+            x0=_dt(next_date, 9, 30), x1=_dt(next_date, 16, 0),
+            fillcolor="rgba(100,200,100,0.05)", line_width=0,
+            annotation_text="Intraday", annotation_position="top left",
+            annotation_font=dict(color="#2d6a2d", size=11),
         )
 
-    # Candlesticks — single trace, standard colors
     fig.add_trace(go.Candlestick(
         x=all_bars["ts"],
         open=all_bars["open"], high=all_bars["high"],
@@ -153,9 +139,8 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         decreasing=dict(line=dict(color="#ef5350", width=1), fillcolor="#ef5350"),
     ))
 
-    # Reference lines
     for level, label, color in [
-        (r.get("pm_high"),  "PM High",  "#e67e00"),
+        (r.get("pm_high"),  "PM High",  "#b36b00"),
         (r.get("pre_high"), "PRE High", "#0277bd"),
     ]:
         if level:
@@ -170,13 +155,13 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         template="plotly_white",
-        height=380,
+        height=300,
         margin=dict(l=0, r=80, t=10, b=0),
         legend=dict(visible=False),
         plot_bgcolor="#fafafa",
         paper_bgcolor="#ffffff",
-        xaxis=dict(gridcolor="#e8e8e8", showgrid=True),
-        yaxis=dict(gridcolor="#e8e8e8", showgrid=True),
+        xaxis=dict(gridcolor="#ebebeb"),
+        yaxis=dict(gridcolor="#ebebeb"),
     )
     fig.update_xaxes(
         rangebreaks=[
@@ -187,14 +172,57 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     return fig
 
 
-# ── Results ───────────────────────────────────────────────────
-BLOCK_META = {
-    "A": ("🟡 Блок A", "PM pump — хай не переписан в PRE и интрадей"),
-    "B": ("🔵 Блок B", "PRE pump — без предшествующего PM мува"),
-    "C": ("🟢 Блок C", "PM pump + продолжение в PRE"),
-}
+# ── Render single ticker card ─────────────────────────────────
+def render_ticker(r: dict, bars: dict, pm_date: str, next_date: str) -> None:
+    t          = r["ticker"]
+    earnings   = r.get("has_earnings", False)
+    block_id   = r["block"]
+    card_class = "ticker-card-earnings" if earnings else "ticker-card"
+
+    st.markdown(f'<div class="{card_class}">', unsafe_allow_html=True)
+
+    col_info, col_chart = st.columns([1, 2.2])
+
+    with col_info:
+        # Header: ticker + block badge + earnings tag
+        badge = f'<span class="block-badge-{block_id}">{BLOCK_LABEL[block_id]}</span>'
+        earn_tag = " 🟡 Earnings" if earnings else ""
+        tv  = f"https://www.tradingview.com/chart/?symbol={t}"
+        fv  = f"https://finviz.com/quote.ashx?t={t}"
+        st.markdown(
+            f"### [{t}]({tv}) &nbsp; {badge}{earn_tag}",
+            unsafe_allow_html=True,
+        )
+        st.caption(r.get("move_info") or "")
+        st.markdown(f"[Finviz]({fv})", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        def _m(label, val):
+            st.markdown(f"**{label}:** {val}")
+
+        _m("Close",          f"${r['reg_close']:.2f}" if r.get("reg_close") else "—")
+        _m("PM Move",        f"{r['pm_move']:.1f}%"   if r.get("pm_move")   else "—")
+        _m("Gap",            f"{r['gap']:.1f}%"        if r.get("gap")       else "—")
+        _m("PRE Move",       f"{r['pre_move']:.1f}%"  if r.get("pre_move")  else "—")
+        _m("Float",          fmt_vol(r.get("float_shares")))
+        st.markdown("---")
+        _m("PM Vol",         fmt_vol(r.get("pm_vol")))
+        _m("PRE Vol",        fmt_vol(r.get("pre_vol")))
+        _m("PRE Flow",       fmt_vol(r.get("pre_flow")))
+        _m("INTRA до 15:00", fmt_vol(r.get("intra_vol_15")))
+
+    with col_chart:
+        if t in bars:
+            fig = build_chart(bars[t][0], bars[t][1], r, pm_date, next_date)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.info("Нет данных для графика.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
+# ── Main render ───────────────────────────────────────────────
 def render(result: dict) -> None:
     meta   = result["meta"]
     blocks = result["blocks"]
@@ -205,70 +233,29 @@ def render(result: dict) -> None:
     st.markdown(f"**Постмаркет:** {pm_d} &nbsp;→&nbsp; **{nx_d}**",
                 unsafe_allow_html=True)
 
-    total = sum(len(v) for v in blocks.values())
+    # Merge all blocks into one list, tag each record with its block id
+    all_rows = []
+    for block_id, rows in blocks.items():
+        for r in rows:
+            all_rows.append({**r, "block": block_id})
+
+    total = len(all_rows)
     c0, c1, c2, c3 = st.columns(4)
     c0.metric("Найдено всего", total)
     c1.metric("🟡 Блок A", len(blocks["A"]))
     c2.metric("🔵 Блок B", len(blocks["B"]))
     c3.metric("🟢 Блок C", len(blocks["C"]))
 
-    st.divider()
-
     if total == 0:
         st.info("По заданным параметрам тикеров не найдено.")
         return
 
-    tab_labels = [f"{BLOCK_META[b][0]} ({len(blocks[b])})" for b in ("A","B","C")]
-    tabs = st.tabs(tab_labels)
+    # Sort by high_time ascending (chronological order of when high was set)
+    all_rows.sort(key=lambda r: r.get("high_time") or datetime.datetime.max.replace(tzinfo=UTC))
 
-    for tab, block_id in zip(tabs, ("A","B","C")):
-        with tab:
-            rows = blocks[block_id]
-            st.caption(BLOCK_META[block_id][1])
-
-            if not rows:
-                st.info("Нет тикеров.")
-                continue
-
-            df = pd.DataFrame([{
-                "Ticker":         r["ticker"],
-                "Float":          fmt_vol(r.get("float_shares")),
-                "PM Move%":       r["pm_move"],
-                "Gap%":           r["gap"],
-                "PRE Move%":      r["pre_move"],
-                "PM Vol":         fmt_vol(r["pm_vol"]),
-                "PRE Vol":        fmt_vol(r["pre_vol"]),
-                "INTRA до 15:00": fmt_vol(r["intra_vol_15"]),
-                "PRE Flow":       fmt_vol(r["pre_flow"]),
-            } for r in rows])
-
-            st.dataframe(
-                style_table(df),
-                use_container_width=True,
-                hide_index=True,
-                height=min(45 + len(rows) * 38, 420),
-            )
-
-            st.markdown("---")
-            for r in rows:
-                t = r["ticker"]
-                with st.expander(f"📊 {t}  —  {r['move_info'] or ''}"):
-                    tv = f"https://www.tradingview.com/chart/?symbol={t}"
-                    fv = f"https://finviz.com/quote.ashx?t={t}"
-                    st.markdown(f"[TradingView]({tv}) &nbsp;|&nbsp; [Finviz]({fv})",
-                                unsafe_allow_html=True)
-
-                    if t in bars:
-                        fig = build_chart(bars[t][0], bars[t][1], r, pm_d, nx_d)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    m1, m2, m3, m4, m5, m6 = st.columns(6)
-                    m1.metric("PM Move",  f"{r['pm_move']:.1f}%"  if r["pm_move"]  else "—")
-                    m2.metric("Gap",      f"{r['gap']:.1f}%"      if r["gap"]      else "—")
-                    m3.metric("PRE Move", f"{r['pre_move']:.1f}%" if r["pre_move"] else "—")
-                    m4.metric("PRE Flow", fmt_vol(r["pre_flow"]))
-                    m5.metric("Close",    f"${r['reg_close']:.2f}" if r["reg_close"] else "—")
-                    m6.metric("Float",    fmt_vol(r.get("float_shares")))
+    st.divider()
+    for r in all_rows:
+        render_ticker(r, bars, pm_d, nx_d)
 
 
 # ── Run ───────────────────────────────────────────────────────

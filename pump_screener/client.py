@@ -85,6 +85,33 @@ def get_bars(ticker: str, date_str: str) -> list:
         return []
 
 
+_EARNINGS_KW = {"earnings", "eps", "revenue", "quarterly", "fiscal quarter",
+                "net income", "net loss", "guidance", "q1 ", "q2 ", "q3 ", "q4 "}
+
+
+def has_earnings_news(ticker: str, pm_date: str) -> bool:
+    """Return True if earnings-related news was published around pm_date."""
+    try:
+        d    = datetime.date.fromisoformat(pm_date)
+        from_ = (d - datetime.timedelta(days=1)).isoformat() + "T00:00:00Z"
+        to_   = (d + datetime.timedelta(days=1)).isoformat() + "T23:59:59Z"
+        for news in get_client().list_ticker_news(
+            ticker,
+            published_utc_gte=from_,
+            published_utc_lte=to_,
+            limit=15,
+        ):
+            text = (
+                (getattr(news, "title",       "") or "") + " " +
+                (getattr(news, "description", "") or "")
+            ).lower()
+            if any(kw in text for kw in _EARNINGS_KW):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def get_float_shares(tickers: list[str]) -> dict[str, float | None]:
     """Fetch weighted_shares_outstanding for a list of tickers in parallel."""
     client = get_client()

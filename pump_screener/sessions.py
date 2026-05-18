@@ -10,13 +10,15 @@ class SessionData(TypedDict):
     regular_close:   float | None
     intra_open:      float | None
     pm_high:         float | None
+    pm_high_time:    datetime.datetime | None
     pm_volume:       float
     pre_high:        float | None
+    pre_high_time:   datetime.datetime | None
     pre_volume:      float
     pre_moneyflow:   float
     intra_high:      float | None
     intra_volume:    float
-    intra_volume_15: float   # intraday volume 09:30–15:00 only
+    intra_volume_15: float
 
 
 def parse_sessions(
@@ -51,17 +53,27 @@ def parse_sessions(
         .astimezone(ET).minute
     ) < 15 * 60]
 
+    def _bar_time(bar) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(
+            bar.timestamp / 1000, tz=datetime.timezone.utc
+        ).astimezone(ET)
+
+    pm_high_bar  = max(pm,  key=lambda b: b.high) if pm  else None
+    pre_high_bar = max(pre, key=lambda b: b.high) if pre else None
+
     return {
-        "regular_close":   intra[-1].close                                          if intra    else None,
-        "intra_open":      intra[0].open                                            if intra    else None,
-        "pm_high":         max(b.high for b in pm)                                  if pm       else None,
-        "pm_volume":       sum(b.volume for b in pm if b.volume)                    if pm       else 0.0,
-        "pre_high":        max(b.high for b in pre)                                 if pre      else None,
-        "pre_volume":      sum(b.volume for b in pre if b.volume)                   if pre      else 0.0,
-        "pre_moneyflow":   sum(b.volume * b.vwap for b in pre if b.volume and b.vwap) if pre   else 0.0,
-        "intra_high":      max(b.high for b in intra)                               if intra    else None,
-        "intra_volume":    sum(b.volume for b in intra if b.volume)                 if intra    else 0.0,
-        "intra_volume_15": sum(b.volume for b in intra_15 if b.volume)              if intra_15 else 0.0,
+        "regular_close":   intra[-1].close                                            if intra    else None,
+        "intra_open":      intra[0].open                                              if intra    else None,
+        "pm_high":         pm_high_bar.high                                           if pm_high_bar  else None,
+        "pm_high_time":    _bar_time(pm_high_bar)                                     if pm_high_bar  else None,
+        "pm_volume":       sum(b.volume for b in pm if b.volume)                      if pm       else 0.0,
+        "pre_high":        pre_high_bar.high                                          if pre_high_bar else None,
+        "pre_high_time":   _bar_time(pre_high_bar)                                    if pre_high_bar else None,
+        "pre_volume":      sum(b.volume for b in pre if b.volume)                     if pre      else 0.0,
+        "pre_moneyflow":   sum(b.volume * b.vwap for b in pre if b.volume and b.vwap) if pre     else 0.0,
+        "intra_high":      max(b.high for b in intra)                                 if intra    else None,
+        "intra_volume":    sum(b.volume for b in intra if b.volume)                   if intra    else 0.0,
+        "intra_volume_15": sum(b.volume for b in intra_15 if b.volume)                if intra_15 else 0.0,
     }
 
 

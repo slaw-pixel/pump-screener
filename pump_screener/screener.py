@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 
 from . import config
-from .client import get_bars, get_float_shares, get_snapshots, load_tickers
+from .client import get_bars, get_float_shares, get_snapshots, has_earnings_news, load_tickers
 from .sessions import SessionData, fmt, fmt_vol, initial_move_label, parse_sessions, pct
 
 ET = ZoneInfo("America/New_York")
@@ -39,11 +39,20 @@ def _classify(
     gap      = pct(intra_o,  reg_close)
     check_intra = intraday_started or not is_today
 
+    pm_high_time  = s_pm["pm_high_time"]
+    pre_high_time = s_nx["pre_high_time"]
+    # high_time = when the current high was set (used for chronological sort)
+    high_time = (
+        pre_high_time if (pre_high and pm_high and pre_high > pm_high)
+        else pm_high_time
+    )
+
     base = dict(
         reg_close=reg_close, pm_high=pm_high, pm_move=pm_move, pm_vol=pm_vol,
         pre_high=pre_high, pre_move=pre_move, pre_vol=pre_vol, pre_flow=pre_flow,
         intra_h=intra_h, gap=gap,
         intra_vol_15=s_nx["intra_volume_15"],
+        high_time=high_time,
     )
 
     # Block A — PM pump, high not broken in PRE or intraday
@@ -173,12 +182,23 @@ def screen(
     for rows in blocks.values():
         rows.sort(key=lambda r: r["sort_key"] or 0, reverse=True)
 
-    # Fetch float for matched tickers only
+    # Fetch float + earnings for matched tickers only
     matched = [r["ticker"] for rows in blocks.values() for r in rows]
     floats = get_float_shares(matched) if matched else {}
+
+    def _check_earnings(ticker: str) -> tuple[str, bool]:
+        return ticker, has_earnings_news(ticker, pm_date)
+
+    earnings: dict[str, bool] = {}
+    if matched:
+        with __import__("concurrent.futures", fromlist=["ThreadPoolExecutor"]).ThreadPoolExecutor(max_workers=20) as pool:
+            for ticker, val in pool.map(_check_earnings, matched):
+                earnings[ticker] = val
+
     for rows in blocks.values():
         for r in rows:
-            r["float_shares"] = floats.get(r["ticker"])
+            r["float_shares"]  = floats.get(r["ticker"])
+            r["has_earnings"]  = earnings.get(r["ticker"], False)
 
     return {
         "blocks": blocks,
