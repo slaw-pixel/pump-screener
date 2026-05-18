@@ -82,9 +82,9 @@ def style_table(df: pd.DataFrame):
     return (
         df.style
         .format({"PM Move%": _fmt, "Gap%": _fmt, "PRE Move%": _fmt})
-        .applymap(pm_color,  subset=["PM Move%"])
-        .applymap(pre_color, subset=["PRE Move%"])
-        .applymap(gap_color, subset=["Gap%"])
+        .map(pm_color,  subset=["PM Move%"])
+        .map(pre_color, subset=["PRE Move%"])
+        .map(gap_color, subset=["Gap%"])
     )
 
 
