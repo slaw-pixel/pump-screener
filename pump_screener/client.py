@@ -144,6 +144,25 @@ def get_splits_today(date_str: str) -> list[dict]:
     return results
 
 
+def get_market_caps(tickers: list[str]) -> dict[str, float | None]:
+    """Fetch market_cap for a list of tickers in parallel."""
+    client = get_client()
+
+    def fetch_one(ticker: str) -> tuple[str, float | None]:
+        try:
+            d = client.get_ticker_details(ticker)
+            mc = getattr(d, "market_cap", None)
+            return ticker, float(mc) if mc else None
+        except Exception:
+            return ticker, None
+
+    results: dict[str, float | None] = {}
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        for ticker, val in pool.map(fetch_one, tickers):
+            results[ticker] = val
+    return results
+
+
 def get_float_shares(tickers: list[str]) -> dict[str, float | None]:
     """Fetch weighted_shares_outstanding for a list of tickers in parallel."""
     client = get_client()

@@ -7,7 +7,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from zoneinfo import ZoneInfo
 
-from pump_screener.client import get_splits_today, prev_trading_day
+from pump_screener.client import get_market_caps, get_splits_today, prev_trading_day
 from pump_screener.screener import screen as run_screen
 from pump_screener.sessions import fmt_vol
 
@@ -33,8 +33,14 @@ BLOCK_LABEL = {"A": "Блок A", "B": "Блок B", "C": "Блок C"}
 
 # ── Splits today ──────────────────────────────────────────────
 @st.cache_data(ttl=3600)
-def _load_splits(date_str: str) -> list[dict]:
-    return get_splits_today(date_str)
+def _load_reverse_splits(date_str: str) -> list[dict]:
+    all_splits = get_splits_today(date_str)
+    rev = [s for s in all_splits if s["reverse"]]
+    if rev:
+        mcaps = get_market_caps([s["ticker"] for s in rev])
+        for s in rev:
+            s["market_cap"] = mcaps.get(s["ticker"])
+    return rev
 
 
 # ── Top controls ──────────────────────────────────────────────
@@ -62,23 +68,20 @@ else:
 
 run_btn = c_btn.button("🔍 Запустить", width="stretch", type="primary")
 
-# Splits banner — always visible at top
-_splits = _load_splits(today.isoformat())
-if _splits:
-    _forward = [s for s in _splits if not s["reverse"]]
-    _reverse = [s for s in _splits if s["reverse"]]
-    parts = []
-    if _forward:
-        items = "  ".join(
-            f"**{s['ticker']}** {s['split_to']}:{s['split_from']}" for s in _forward
-        )
-        parts.append(f"✂️ **Сплиты:** {items}")
-    if _reverse:
-        items = "  ".join(
-            f"**{s['ticker']}** {s['split_to']}:{s['split_from']}" for s in _reverse
-        )
-        parts.append(f"🔄 **Реверс:** {items}")
-    st.info("  &nbsp;|&nbsp;  ".join(parts), icon=None)
+# Reverse splits section — always visible at top
+_rev_splits = _load_reverse_splits(today.isoformat())
+if _rev_splits:
+    st.markdown("**🔄 Антисплиты сегодня**")
+    cols = st.columns(3)
+    for i, s in enumerate(_rev_splits):
+        ratio    = f"{s['split_to']}:{s['split_from']}"
+        mcap_str = fmt_vol(s.get("market_cap")) if s.get("market_cap") else "—"
+        with cols[i % 3]:
+            st.markdown(
+                f"**{s['ticker']}** &nbsp; `{ratio}` &nbsp; "
+                f"<span style='color:#888'>{mcap_str}</span>",
+                unsafe_allow_html=True,
+            )
 
 st.divider()
 
