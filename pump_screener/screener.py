@@ -1,5 +1,6 @@
 """Core screener logic — block A/B/C classification and full scan."""
 import datetime
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 
@@ -79,29 +80,42 @@ def _classify(
     return None, {}
 
 
-def run_screener(pm_date: str, next_date: str, *, is_today: bool = False) -> None:
+def screen(
+    pm_date: str,
+    next_date: str,
+    *,
+    is_today: bool = False,
+    on_progress: Callable[[str, float], None] | None = None,
+) -> dict:
+    """Core screening function. Returns structured data for CLI and web UI.
+
+    Returns:
+        {
+            "blocks": {"A": [...], "B": [...], "C": [...]},
+            "bars":   {ticker: (bars_pm, bars_nx)},   # only matched tickers
+            "meta":   {...},
+        }
+
+    on_progress(stage, value) is called with:
+        stage="snapshots" value=0..1
+        stage="fetching"  value=0..1  (fraction of candidates done)
+    """
     now_utc = datetime.datetime.now(tz=datetime.timezone.utc)
     now_et  = now_utc.astimezone(ET)
     intraday_started  = is_today and now_et.time() >= datetime.time(9, 30)
     premarket_started = is_today and now_et.time() >= datetime.time(4, 0)
     cutoff_utc        = now_utc if is_today else None
 
-    print(f"\n{'='*68}")
-    print(f"  Screener  |  Постмаркет: {pm_date}  ->  {next_date}")
-    if is_today:
-        status_pre   = "OK" if premarket_started else "нет"
-        status_intra = "OK" if intraday_started  else "нет"
-        print(f"  ET: {now_et.strftime('%H:%M')}  Премаркет: {status_pre}  Интрадей: {status_intra}")
-    print(f"{'='*68}")
-
     all_tickers = load_tickers()
     for t in config.EXTRA_TICKERS:
         if t not in all_tickers:
             all_tickers.append(t)
 
-    print("  Snapshots...")
+    if on_progress:
+        on_progress("snapshots", 0.0)
     snapshots = get_snapshots(all_tickers)
-    print(f"\n  Snapshots: {len(snapshots)}")
+    if on_progress:
+        on_progress("snapshots", 1.0)
 
     candidates = [
         ticker for ticker, snap in snapshots.items()
@@ -110,30 +124,35 @@ def run_screener(pm_date: str, next_date: str, *, is_today: bool = False) -> Non
     for t in config.EXTRA_TICKERS:
         if t not in candidates:
             candidates.append(t)
-    print(f"  Кандидатов: {len(candidates)}")
-    print(f"  Загружаю минутные данные (параллельно, {config.FETCH_WORKERS} потоков)...\n")
 
-    def fetch(ticker: str) -> tuple[str, SessionData, SessionData]:
-        s_pm = parse_sessions(get_bars(ticker, pm_date))
-        s_nx = parse_sessions(get_bars(ticker, next_date), cutoff_utc=cutoff_utc)
-        return ticker, s_pm, s_nx
+    def fetch(ticker: str):
+        bars_pm = get_bars(ticker, pm_date)
+        bars_nx = get_bars(ticker, next_date)
+        s_pm = parse_sessions(bars_pm)
+        s_nx = parse_sessions(bars_nx, cutoff_utc=cutoff_utc)
+        return ticker, s_pm, s_nx, bars_pm, bars_nx
 
     ticker_data: dict[str, tuple[SessionData, SessionData]] = {}
+    ticker_bars: dict[str, tuple[list, list]] = {}
     done = 0
+    total = len(candidates)
+
     with ThreadPoolExecutor(max_workers=config.FETCH_WORKERS) as pool:
         futures = {pool.submit(fetch, t): t for t in candidates}
         for future in as_completed(futures):
             done += 1
-            print(f"  [{done}/{len(candidates)}] загружаю...          ", end="\r")
+            if on_progress:
+                on_progress("fetching", done / total)
             try:
-                ticker, s_pm, s_nx = future.result()
+                ticker, s_pm, s_nx, bars_pm, bars_nx = future.result()
                 ticker_data[ticker] = (s_pm, s_nx)
+                ticker_bars[ticker] = (bars_pm, bars_nx)
             except Exception:
                 pass
 
-    print(f"\n  Анализирую {len(ticker_data)} тикеров...")
-
     blocks: dict[str, list[dict]] = {"A": [], "B": [], "C": []}
+    result_bars: dict[str, tuple[list, list]] = {}
+
     for ticker in candidates:
         if ticker not in ticker_data:
             continue
@@ -149,8 +168,53 @@ def run_screener(pm_date: str, next_date: str, *, is_today: bool = False) -> Non
                 record["pm_high"], record["pre_high"], record["reg_close"]
             )
             blocks[block].append(record)
+            result_bars[ticker] = ticker_bars[ticker]
 
-    _print_results(blocks, pm_date, next_date)
+    for rows in blocks.values():
+        rows.sort(key=lambda r: r["sort_key"] or 0, reverse=True)
+
+    return {
+        "blocks": blocks,
+        "bars": result_bars,
+        "meta": {
+            "pm_date":            pm_date,
+            "next_date":          next_date,
+            "candidates":         total,
+            "is_today":           is_today,
+            "premarket_started":  premarket_started,
+            "intraday_started":   intraday_started,
+            "now_et":             now_et,
+        },
+    }
+
+
+def run_screener(pm_date: str, next_date: str, *, is_today: bool = False) -> None:
+    """CLI entry point — runs screen() and prints formatted results."""
+    now_utc = datetime.datetime.now(tz=datetime.timezone.utc)
+    now_et  = now_utc.astimezone(ET)
+    intraday_started  = is_today and now_et.time() >= datetime.time(9, 30)
+    premarket_started = is_today and now_et.time() >= datetime.time(4, 0)
+
+    print(f"\n{'='*68}")
+    print(f"  Screener  |  Постмаркет: {pm_date}  ->  {next_date}")
+    if is_today:
+        status_pre   = "OK" if premarket_started else "нет"
+        status_intra = "OK" if intraday_started  else "нет"
+        print(f"  ET: {now_et.strftime('%H:%M')}  Премаркет: {status_pre}  Интрадей: {status_intra}")
+    print(f"{'='*68}")
+
+    done_count = [0]
+
+    def on_progress(stage: str, value: float) -> None:
+        if stage == "snapshots" and value == 0:
+            print("  Snapshots...")
+        elif stage == "fetching":
+            n = int(value * 100)
+            print(f"  Загружаю бары... {n}%          ", end="\r")
+
+    result = screen(pm_date, next_date, is_today=is_today, on_progress=on_progress)
+    print(f"\n  Анализирую {result['meta']['candidates']} кандидатов...")
+    _print_results(result["blocks"], pm_date, next_date)
 
 
 def _print_results(
@@ -173,12 +237,10 @@ def _print_results(
         if not rows:
             print("  Нет тикеров.")
             continue
-        rows.sort(key=lambda r: r["sort_key"] or 0, reverse=True)
         for r in rows:
             move = r["move_info"] or f"InitialMov={fmt(r['sort_key'])}%"
-            vol_pm    = fmt_vol(r["pm_vol"])
-            vol_pre   = fmt_vol(r["pre_vol"])
-            vol_intra = fmt_vol(r["intra_vol_15"])
             print(f"  {r['ticker']:<7}  {move}")
-            print(f"           PM({pm_date}): {vol_pm:<8}  PRE: {vol_pre:<8}  INTRA до 15:00: {vol_intra}")
+            print(f"           PM({pm_date}): {fmt_vol(r['pm_vol']):<8}  "
+                  f"PRE: {fmt_vol(r['pre_vol']):<8}  "
+                  f"INTRA до 15:00: {fmt_vol(r['intra_vol_15'])}")
         print(sep)
