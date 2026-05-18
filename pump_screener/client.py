@@ -85,8 +85,17 @@ def get_bars(ticker: str, date_str: str) -> list:
         return []
 
 
-_EARNINGS_KW = {"earnings", "eps", "revenue", "quarterly", "fiscal quarter",
-                "net income", "net loss", "guidance", "q1 ", "q2 ", "q3 ", "q4 "}
+_EARNINGS_KW = {
+    "earnings", "eps", "revenue", "quarterly", "fiscal quarter",
+    "net income", "net loss", "guidance",
+    "q1 ", "q2 ", "q3 ", "q4 ",
+    "q1", "q2", "q3", "q4",
+    "results", "financial results", "profit", "loss",
+    "beat", "beats", "miss", "misses", "exceeded", "surpassed",
+    "reports third", "reports second", "reports first", "reports fourth",
+    "fourth quarter", "third quarter", "second quarter", "first quarter",
+    "annual results", "full year", "fiscal year",
+}
 
 
 def has_earnings_news(ticker: str, pm_date: str) -> bool:

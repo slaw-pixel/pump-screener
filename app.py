@@ -116,7 +116,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         d = datetime.date.fromisoformat(date_str)
         return datetime.datetime(d.year, d.month, d.day, hour, minute, tzinfo=ET)
 
-    vol_colors = ["#7ec8c2" if c >= o else "#f0918e"
+    vol_colors = ["#3d9970" if c >= o else "#e05252"
                   for o, c in zip(all_r["open"], all_r["close"])]
 
     fig = make_subplots(
@@ -129,14 +129,16 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     # Session background shading — use actual bar timestamps as boundaries
     # because add_vrect with fixed times breaks when rangebreaks compress the axis.
     # add_shape(yref="paper") spans both subplots in one call.
-    GRAY_BG = "rgba(180,180,180,0.22)"
+    POST_BG = "rgba(210,200,185,0.28)"   # warm light beige for POST
+    PRE_BG  = "rgba(165,175,190,0.28)"   # cool blue-gray for PRE
     BAR_W   = datetime.timedelta(minutes=15)
 
-    def _shade(x0_dt: datetime.datetime, x1_dt: datetime.datetime, label: str) -> None:
+    def _shade(x0_dt: datetime.datetime, x1_dt: datetime.datetime,
+               label: str, color: str) -> None:
         fig.add_shape(
             type="rect", xref="x", yref="paper",
             x0=x0_dt, x1=x1_dt, y0=0, y1=1,
-            fillcolor=GRAY_BG, line_width=0, layer="below",
+            fillcolor=color, line_width=0, layer="below",
         )
         fig.add_annotation(
             x=x0_dt, y=0.98, xref="x", yref="paper",
@@ -155,13 +157,13 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     if not post_r.empty:
         p0 = post_r["ts"].iloc[0]
         p1 = post_r["ts"].iloc[-1] + BAR_W
-        _shade(p0, p1, "POST")
+        _shade(p0, p1, "POST", POST_BG)
         _sep(p1)
 
     if not pre_r.empty:
         r0 = pre_r["ts"].iloc[0]
         r1 = pre_r["ts"].iloc[-1] + BAR_W
-        _shade(r0, r1, "PRE")
+        _shade(r0, r1, "PRE", PRE_BG)
         _sep(r1)
     # Intraday: no shading (white = regular session)
 
@@ -202,7 +204,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
             xref="x", yref="y2",
             text=fmt_vol(total),
             showarrow=False, yanchor="top",
-            font=dict(color=color, size=9),
+            font=dict(color=color, size=11),
             bgcolor="rgba(255,255,255,0.75)", borderpad=2,
         )
 
