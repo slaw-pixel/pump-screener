@@ -89,14 +89,14 @@ def _to_df(bars: list) -> pd.DataFrame:
 
 
 def build_chart(bars_pm: list, bars_nx: list, r: dict,
-                pm_date: str, next_date: str) -> go.Figure:
+                pm_date: str, next_date: str,
+                float_shares: float | None = None) -> go.Figure:
     df_pm = _to_df(bars_pm)
     df_nx = _to_df(bars_nx)
 
     def seg(df: pd.DataFrame, m0: int, m1: int) -> pd.DataFrame:
         return df[(df.minutes >= m0) & (df.minutes < m1)]
 
-    # Only show PM + PRE + Intraday (no regular session — too noisy)
     pm_bars  = seg(df_pm, 16*60,   20*60)
     pre_bars = seg(df_nx, 4*60,    9*60+30)
     intra    = seg(df_nx, 9*60+30, 16*60)
@@ -105,7 +105,6 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     if all_bars.empty:
         return go.Figure()
 
-    # Resample to 15-min candles
     post_r  = _resample(pm_bars)
     pre_r   = _resample(pre_bars)
     intra_r = _resample(intra)
@@ -117,7 +116,6 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         d = datetime.date.fromisoformat(date_str)
         return datetime.datetime(d.year, d.month, d.day, hour, minute, tzinfo=ET)
 
-    # Volume colors: muted green/red
     vol_colors = ["#7ec8c2" if c >= o else "#f0918e"
                   for o, c in zip(all_r["open"], all_r["close"])]
 
@@ -128,8 +126,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         vertical_spacing=0.02,
     )
 
-    # Session background bands (applied to both rows via row=None is not supported,
-    # so we add vrect per row)
+    # Session background bands
     for row in (1, 2):
         if not post_r.empty:
             fig.add_vrect(
@@ -159,22 +156,20 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
                 row=row, col=1,
             )
 
-    # Session boundary vertical lines
-    boundaries = []
-    if not post_r.empty:
-        boundaries.append((_dt(pm_date, 20, 0), "#e0a030", "dash"))
-    if not pre_r.empty:
-        boundaries.append((_dt(next_date, 4, 0), "#4fc3f7", "dash"))
-        boundaries.append((_dt(next_date, 9, 30), "#5cb85c", "dash"))
+    # Session boundary lines spanning both subplots (yref="paper" = full figure height)
+    def _vline(x_val: datetime.datetime, color: str) -> None:
+        fig.add_shape(
+            type="line", xref="x", yref="paper",
+            x0=x_val, x1=x_val, y0=0, y1=1,
+            line=dict(color=color, width=1.5, dash="dash"),
+            opacity=0.75,
+        )
 
-    for x_val, color, dash in boundaries:
-        for row in (1, 2):
-            fig.add_vline(
-                x=x_val.isoformat(),
-                line_dash=dash, line_color=color,
-                line_width=1, opacity=0.6,
-                row=row, col=1,
-            )
+    if not post_r.empty:
+        _vline(_dt(pm_date, 20, 0), "#e0a030")
+    if not pre_r.empty:
+        _vline(_dt(next_date, 4, 0), "#4fc3f7")
+        _vline(_dt(next_date, 9, 30), "#5cb85c")
 
     # Candlestick
     fig.add_trace(go.Candlestick(
@@ -194,6 +189,52 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         name="Volume",
         showlegend=False,
     ), row=2, col=1)
+
+    # Volume totals per session — annotations on volume subplot
+    max_vol = all_r["volume"].max() if not all_r.empty else 1
+    for raw_df, resampled_df, color in [
+        (pm_bars,  post_r,  "#b36b00"),
+        (pre_bars, pre_r,   "#0277bd"),
+        (intra,    intra_r, "#2d6a2d"),
+    ]:
+        if resampled_df.empty or raw_df.empty:
+            continue
+        total = raw_df["volume"].sum()
+        if total <= 0:
+            continue
+        mid_ts = resampled_df["ts"].iloc[len(resampled_df) // 2]
+        fig.add_annotation(
+            x=mid_ts, y=max_vol,
+            xref="x", yref="y2",
+            text=fmt_vol(total),
+            showarrow=False, yanchor="top",
+            font=dict(color=color, size=9),
+            bgcolor="rgba(255,255,255,0.75)", borderpad=2,
+        )
+
+    # Float cumsum marker — purple dotted line where cumulative volume crosses float
+    if float_shares and float_shares > 0:
+        cumvol, float_ts = 0.0, None
+        for _, bar_row in all_bars.sort_values("ts").iterrows():
+            cumvol += bar_row["volume"]
+            if cumvol >= float_shares:
+                float_ts = bar_row["ts"]
+                break
+        if float_ts is not None:
+            fig.add_shape(
+                type="line", xref="x", yref="paper",
+                x0=float_ts, x1=float_ts, y0=0, y1=1,
+                line=dict(color="#9c27b0", width=1.5, dash="dot"),
+                opacity=0.85,
+            )
+            fig.add_annotation(
+                x=float_ts, y=max_vol,
+                xref="x", yref="y2",
+                text="1×Float",
+                showarrow=False, yanchor="top",
+                font=dict(color="#9c27b0", size=9),
+                bgcolor="rgba(255,255,255,0.8)", borderpad=2,
+            )
 
     # Reference lines
     for level, label, color in [
@@ -299,11 +340,12 @@ def render_ticker(r: dict, bars: dict, pm_date: str, next_date: str) -> None:
     col_info, col_chart = st.columns([1, 2.4])
 
     with col_info:
-        st.markdown(info_html, unsafe_allow_html=True)
+        st.html(info_html)
 
     with col_chart:
         if t in bars:
-            fig = build_chart(bars[t][0], bars[t][1], r, pm_date, next_date)
+            fig = build_chart(bars[t][0], bars[t][1], r, pm_date, next_date,
+                              float_shares=r.get("float_shares"))
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("Нет данных для графика.")
