@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 
 from . import config
-from .client import get_bars, get_snapshots, load_tickers
+from .client import get_bars, get_float_shares, get_snapshots, load_tickers
 from .sessions import SessionData, fmt, fmt_vol, initial_move_label, parse_sessions, pct
 
 ET = ZoneInfo("America/New_York")
@@ -172,6 +172,13 @@ def screen(
 
     for rows in blocks.values():
         rows.sort(key=lambda r: r["sort_key"] or 0, reverse=True)
+
+    # Fetch float for matched tickers only
+    matched = [r["ticker"] for rows in blocks.values() for r in rows]
+    floats = get_float_shares(matched) if matched else {}
+    for rows in blocks.values():
+        for r in rows:
+            r["float_shares"] = floats.get(r["ticker"])
 
     return {
         "blocks": blocks,
