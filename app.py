@@ -17,47 +17,54 @@ st.set_page_config(
     page_title="Pump Screener",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
 <style>
-    [data-testid="metric-container"] { background: #1e1e2e; border-radius: 8px; padding: 12px 16px; }
-    .stTabs [data-baseweb="tab"]     { font-size: 1rem; font-weight: 600; }
+    #MainMenu, footer, header { visibility: hidden; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
+    [data-testid="metric-container"] {
+        background: #1a1a2e; border-radius: 8px; padding: 10px 14px;
+    }
+    .stTabs [data-baseweb="tab"] { font-size: 1rem; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Sidebar ───────────────────────────────────────────────────
-with st.sidebar:
-    st.title("📈 Pump Screener")
-    st.divider()
+# ── Date controls (top of page) ───────────────────────────────
+st.markdown("## 📈 Pump Screener")
 
-    today      = datetime.date.today()
-    yesterday  = prev_trading_day(today)
-    day_before = prev_trading_day(yesterday)
+today      = datetime.date.today()
+yesterday  = prev_trading_day(today)
+day_before = prev_trading_day(yesterday)
 
-    mode = st.radio("Период", ["Сегодня", "Вчера", "Свои даты"], index=0)
+ctl1, ctl2, ctl3, ctl4, ctl5 = st.columns([1, 1, 1.2, 1.2, 1])
 
-    if mode == "Сегодня":
-        pm_date   = yesterday.isoformat()
-        next_date = today.isoformat()
-        is_today  = True
-    elif mode == "Вчера":
-        pm_date   = day_before.isoformat()
-        next_date = yesterday.isoformat()
-        is_today  = False
-    else:
-        col1, col2 = st.columns(2)
-        d1 = col1.date_input("Постмаркет",     value=yesterday)
-        d2 = col2.date_input("Следующий день", value=today)
-        pm_date   = d1.isoformat()
-        next_date = d2.isoformat()
-        is_today  = (d2 == today)
+mode = ctl1.radio("Период", ["Сегодня", "Вчера", "Даты"], horizontal=False, label_visibility="collapsed")
 
-    st.caption(f"PM: {pm_date}  →  {next_date}")
-    st.divider()
-    run_btn = st.button("🔍 Запустить скан", use_container_width=True, type="primary")
+if mode == "Сегодня":
+    pm_date   = yesterday.isoformat()
+    next_date = today.isoformat()
+    is_today  = True
+    ctl2.markdown(f"**PM:** {pm_date}")
+    ctl2.markdown(f"**→** {next_date}")
+elif mode == "Вчера":
+    pm_date   = day_before.isoformat()
+    next_date = yesterday.isoformat()
+    is_today  = False
+    ctl2.markdown(f"**PM:** {pm_date}")
+    ctl2.markdown(f"**→** {next_date}")
+else:
+    d1 = ctl3.date_input("Постмаркет",     value=yesterday)
+    d2 = ctl4.date_input("Следующий день", value=today)
+    pm_date   = d1.isoformat()
+    next_date = d2.isoformat()
+    is_today  = (d2 == today)
+
+run_btn = ctl5.button("🔍 Запустить", use_container_width=True, type="primary")
+
+st.divider()
 
 
 # ── Chart ─────────────────────────────────────────────────────
@@ -67,16 +74,13 @@ def _to_df(bars: list) -> pd.DataFrame:
         ts = datetime.datetime.fromtimestamp(b.timestamp / 1000, tz=UTC).astimezone(ET)
         rows.append({
             "ts":      ts,
-            "open":    b.open,
-            "high":    b.high,
-            "low":     b.low,
-            "close":   b.close,
+            "open":    b.open,  "high":   b.high,
+            "low":     b.low,   "close":  b.close,
             "volume":  getattr(b, "volume", 0) or 0,
             "minutes": ts.hour * 60 + ts.minute,
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame(
-        columns=["ts", "open", "high", "low", "close", "volume", "minutes"]
-    )
+        columns=["ts","open","high","low","close","volume","minutes"])
 
 
 def build_chart(bars_pm: list, bars_nx: list, r: dict) -> go.Figure:
@@ -97,21 +101,18 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict) -> go.Figure:
         if df.empty:
             return
         fig.add_trace(go.Candlestick(
-            x=df["ts"],
-            open=df["open"], high=df["high"],
-            low=df["low"],   close=df["close"],
-            name=name,
+            x=df["ts"], open=df["open"], high=df["high"],
+            low=df["low"], close=df["close"], name=name,
             increasing=dict(line=dict(color=inc, width=1), fillcolor=inc),
             decreasing=dict(line=dict(color=dec, width=1), fillcolor=dec),
             opacity=opacity,
         ))
 
-    add(reg_tail, "Regular", "#4a4a6a", "#3a3a5a", opacity=0.5)
+    add(reg_tail, "Regular", "#4a4a6a", "#3a3a5a", opacity=0.45)
     add(pm_bars,  "PM",      "#f5a623", "#c47d10")
     add(pre_bars, "PRE",     "#4fc3f7", "#0288d1")
     add(intra,    "Intraday","#66bb6a", "#e53935")
 
-    # Horizontal reference lines
     for level, label, color in [
         (r.get("pm_high"),  "PM High",  "#f5a623"),
         (r.get("pre_high"), "PRE High", "#4fc3f7"),
@@ -127,14 +128,14 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict) -> go.Figure:
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         height=400,
-        margin=dict(l=0, r=60, t=20, b=0),
+        margin=dict(l=0, r=70, t=20, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
         plot_bgcolor="#0e1117",
         paper_bgcolor="#0e1117",
     )
     fig.update_xaxes(
         rangebreaks=[
-            dict(bounds=["sat", "mon"]),
+            dict(bounds=["sat","mon"]),
             dict(bounds=[20, 4], pattern="hour"),
         ]
     )
@@ -143,7 +144,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict) -> go.Figure:
 
 # ── Results ───────────────────────────────────────────────────
 BLOCK_META = {
-    "A": ("🟡 Блок A", f"PM pump — хай не переписан в PRE и интрадей"),
+    "A": ("🟡 Блок A", "PM pump — хай не переписан в PRE и интрадей"),
     "B": ("🔵 Блок B", "PRE pump — без предшествующего PM мува"),
     "C": ("🟢 Блок C", "PM pump + продолжение в PRE"),
 }
@@ -154,12 +155,12 @@ def render(result: dict) -> None:
     blocks = result["blocks"]
     bars   = result["bars"]
 
-    # ── Header metrics
-    st.markdown(f"### Постмаркет: **{meta['pm_date']}** → **{meta['next_date']}**")
+    st.markdown(f"**Постмаркет:** {meta['pm_date']} &nbsp;→&nbsp; **{meta['next_date']}**",
+                unsafe_allow_html=True)
 
     total = sum(len(v) for v in blocks.values())
     c0, c1, c2, c3 = st.columns(4)
-    c0.metric("Всего найдено", total)
+    c0.metric("Найдено всего", total)
     c1.metric("🟡 Блок A", len(blocks["A"]))
     c2.metric("🔵 Блок B", len(blocks["B"]))
     c3.metric("🟢 Блок C", len(blocks["C"]))
@@ -170,10 +171,10 @@ def render(result: dict) -> None:
         st.info("По заданным параметрам тикеров не найдено.")
         return
 
-    tab_labels = [f"{BLOCK_META[b][0]} ({len(blocks[b])})" for b in ("A", "B", "C")]
+    tab_labels = [f"{BLOCK_META[b][0]} ({len(blocks[b])})" for b in ("A","B","C")]
     tabs = st.tabs(tab_labels)
 
-    for tab, block_id in zip(tabs, ("A", "B", "C")):
+    for tab, block_id in zip(tabs, ("A","B","C")):
         with tab:
             rows = blocks[block_id]
             st.caption(BLOCK_META[block_id][1])
@@ -182,7 +183,6 @@ def render(result: dict) -> None:
                 st.info("Нет тикеров.")
                 continue
 
-            # ── Summary table
             df = pd.DataFrame([{
                 "Ticker":         r["ticker"],
                 "PM Move%":       r["pm_move"],
@@ -194,54 +194,42 @@ def render(result: dict) -> None:
                 "PRE Flow":       fmt_vol(r["pre_flow"]),
             } for r in rows])
 
-            def _fmt_pct(v):
+            def _fmt(v):
                 return f"{v:.1f}%" if v is not None else "—"
 
             styled = (
                 df.style
-                .format({
-                    "PM Move%":  _fmt_pct,
-                    "Gap%":      _fmt_pct,
-                    "PRE Move%": _fmt_pct,
-                })
-                .background_gradient(subset=["PM Move%"],  cmap="YlOrRd", vmin=0,  vmax=200)
-                .background_gradient(subset=["PRE Move%"], cmap="Blues",  vmin=0,  vmax=200)
-                .background_gradient(subset=["Gap%"],      cmap="Greens", vmin=0,  vmax=100)
+                .format({"PM Move%": _fmt, "Gap%": _fmt, "PRE Move%": _fmt})
+                .background_gradient(subset=["PM Move%"],  cmap="YlOrRd", vmin=0, vmax=200)
+                .background_gradient(subset=["PRE Move%"], cmap="Blues",  vmin=0, vmax=200)
+                .background_gradient(subset=["Gap%"],      cmap="Greens", vmin=0, vmax=100)
             )
 
-            st.dataframe(
-                styled,
-                use_container_width=True,
-                hide_index=True,
-                height=min(45 + len(rows) * 38, 420),
-            )
+            st.dataframe(styled, use_container_width=True, hide_index=True,
+                         height=min(45 + len(rows) * 38, 420))
 
-            # ── Per-ticker chart + stats
             st.markdown("---")
             for r in rows:
                 t = r["ticker"]
-                label = f"📊 {t}  —  {r['move_info'] or ''}"
-                with st.expander(label):
-                    tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
-                    fv_url = f"https://finviz.com/quote.ashx?t={t}"
-                    st.markdown(
-                        f"[TradingView]({tv_url}) &nbsp;|&nbsp; [Finviz]({fv_url})",
-                        unsafe_allow_html=True,
-                    )
+                with st.expander(f"📊 {t}  —  {r['move_info'] or ''}"):
+                    tv = f"https://www.tradingview.com/chart/?symbol={t}"
+                    fv = f"https://finviz.com/quote.ashx?t={t}"
+                    st.markdown(f"[TradingView]({tv}) &nbsp;|&nbsp; [Finviz]({fv})",
+                                unsafe_allow_html=True)
 
                     if t in bars:
-                        fig = build_chart(bars[t][0], bars[t][1], r)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(build_chart(bars[t][0], bars[t][1], r),
+                                        use_container_width=True)
 
                     m1, m2, m3, m4, m5 = st.columns(5)
-                    m1.metric("PM Move",   f"{r['pm_move']:.1f}%"  if r["pm_move"]  else "—")
-                    m2.metric("Gap",       f"{r['gap']:.1f}%"      if r["gap"]      else "—")
-                    m3.metric("PRE Move",  f"{r['pre_move']:.1f}%" if r["pre_move"] else "—")
-                    m4.metric("PRE Flow",  fmt_vol(r["pre_flow"]))
-                    m5.metric("PRE Close", f"${r['reg_close']:.2f}" if r["reg_close"] else "—")
+                    m1.metric("PM Move",  f"{r['pm_move']:.1f}%"  if r["pm_move"]  else "—")
+                    m2.metric("Gap",      f"{r['gap']:.1f}%"      if r["gap"]      else "—")
+                    m3.metric("PRE Move", f"{r['pre_move']:.1f}%" if r["pre_move"] else "—")
+                    m4.metric("PRE Flow", fmt_vol(r["pre_flow"]))
+                    m5.metric("Close",    f"${r['reg_close']:.2f}" if r["reg_close"] else "—")
 
 
-# ── Main ──────────────────────────────────────────────────────
+# ── Run ───────────────────────────────────────────────────────
 if run_btn:
     with st.status("Запускаю скан...", expanded=True) as status:
         progress = st.progress(0.0)
@@ -251,22 +239,17 @@ if run_btn:
                 status.write("📡 Загружаю snapshots...")
                 progress.progress(value * 0.2)
             elif stage == "fetching":
-                status.write(f"📊 Загружаю минутные бары... {value:.0%}")
+                status.write(f"📊 Загружаю бары... {value:.0%}")
                 progress.progress(0.2 + value * 0.8)
 
         result = run_screen(pm_date, next_date, is_today=is_today, on_progress=on_progress)
-
-        total = sum(len(v) for v in result["blocks"].values())
-        status.update(
-            label=f"✅ Готово — найдено {total} тикеров",
-            state="complete",
-            expanded=False,
-        )
+        total  = sum(len(v) for v in result["blocks"].values())
+        status.update(label=f"✅ Готово — найдено {total} тикеров",
+                      state="complete", expanded=False)
         progress.empty()
         st.session_state["result"] = result
 
 if "result" in st.session_state:
     render(st.session_state["result"])
 else:
-    st.markdown("## 📈 Pump Screener")
-    st.info("Выберите период в боковой панели и нажмите **Запустить скан**.")
+    st.info("Выберите период и нажмите **🔍 Запустить**.")
