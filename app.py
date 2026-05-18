@@ -127,7 +127,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     )
 
     # Session background shading (gray for extended hours, white for regular)
-    GRAY = "rgba(150,150,150,0.13)"
+    GRAY = "rgba(120,120,120,0.18)"
     for row in (1, 2):
         if not post_r.empty:
             fig.add_vrect(
@@ -250,7 +250,7 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         height=360,
         margin=dict(l=0, r=80, t=10, b=0),
         legend=dict(visible=False),
-        plot_bgcolor="#fafafa",
+        plot_bgcolor="white",
         paper_bgcolor="#ffffff",
         xaxis2=dict(gridcolor="#ebebeb"),
         yaxis=dict(gridcolor="#ebebeb"),
