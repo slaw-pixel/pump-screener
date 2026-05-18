@@ -24,18 +24,6 @@ st.markdown("""
 <style>
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1.2rem; padding-bottom: 1rem; }
-    .ticker-card {
-        border: 1px solid #e0e0e0; border-radius: 8px;
-        padding: 12px 16px; margin-bottom: 12px;
-    }
-    .ticker-card-earnings {
-        border: 1px solid #f0c000; border-radius: 8px;
-        padding: 12px 16px; margin-bottom: 12px;
-        background: rgba(255, 200, 0, 0.07);
-    }
-    .block-badge-A { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.8rem; }
-    .block-badge-B { background:#cfe2ff; color:#0a58ca; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.8rem; }
-    .block-badge-C { background:#d1e7dd; color:#0f5132; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -173,44 +161,79 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
 
 
 # ── Render single ticker card ─────────────────────────────────
+def _high_at_badge(r: dict) -> str:
+    pre_h = r.get("pre_high")
+    pm_h  = r.get("pm_high")
+    if pre_h and pm_h and pre_h > pm_h:
+        return '<span style="background:#cfe2ff;color:#0a58ca;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=PRE</span>'
+    if pm_h:
+        return '<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=PM</span>'
+    return ""
+
+
 def render_ticker(r: dict, bars: dict, pm_date: str, next_date: str) -> None:
-    t          = r["ticker"]
-    earnings   = r.get("has_earnings", False)
-    block_id   = r["block"]
-    card_class = "ticker-card-earnings" if earnings else "ticker-card"
+    t        = r["ticker"]
+    earnings = r.get("has_earnings", False)
+    border   = "2px solid #f0c000" if earnings else "1px solid #e0e0e0"
+    bg       = "rgba(255,200,0,0.06)" if earnings else "transparent"
 
-    st.markdown(f'<div class="{card_class}">', unsafe_allow_html=True)
+    tv = f"https://www.tradingview.com/chart/?symbol={t}"
+    fv = f"https://finviz.com/quote.ashx?t={t}"
 
-    col_info, col_chart = st.columns([1, 2.2])
+    def v(key, fmt_fn):
+        val = r.get(key)
+        return fmt_fn(val) if val is not None else "—"
+
+    pm_move  = v("pm_move",  lambda x: f"{x:.1f}%")
+    gap      = v("gap",      lambda x: f"{x:.1f}%")
+    pre_move = v("pre_move", lambda x: f"{x:.1f}%")
+    close_   = v("reg_close",lambda x: f"${x:.2f}")
+    flt      = fmt_vol(r.get("float_shares"))
+    pm_vol   = fmt_vol(r.get("pm_vol"))
+    pre_vol  = fmt_vol(r.get("pre_vol"))
+    pre_flow = fmt_vol(r.get("pre_flow"))
+    intra15  = fmt_vol(r.get("intra_vol_15"))
+
+    earn_tag   = "&nbsp;🟡 <b>Earnings</b>" if earnings else ""
+    badge      = _high_at_badge(r)
+    pm_move_c  = "#c47d10" if r.get("pm_move")  else "#888"
+    pre_move_c = "#0277bd" if r.get("pre_move") else "#888"
+
+    info_html = f"""
+<div style="border:{border};border-radius:8px;padding:10px 14px;
+            margin-bottom:10px;background:{bg};font-size:0.88rem;line-height:1.5">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+    <a href="{tv}" target="_blank"
+       style="font-size:1.3rem;font-weight:700;text-decoration:none;color:inherit">{t}</a>
+    {badge}{earn_tag}
+    <span style="margin-left:auto;font-size:0.78rem">
+      <a href="{tv}" target="_blank">TV</a> &nbsp;
+      <a href="{fv}" target="_blank">FV</a>
+    </span>
+  </div>
+  <div style="color:#888;font-size:0.78rem;margin-bottom:6px">{r.get("move_info") or ""}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 12px">
+    <span>Close &nbsp;<b>{close_}</b></span>
+    <span>Float &nbsp;<b>{flt}</b></span>
+    <span style="color:{pm_move_c}">PM Move &nbsp;<b>{pm_move}</b></span>
+    <span>Gap &nbsp;<b>{gap}</b></span>
+    <span style="color:{pre_move_c}">PRE Move &nbsp;<b>{pre_move}</b></span>
+    <span></span>
+  </div>
+  <div style="border-top:1px solid #eee;margin:5px 0"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 12px">
+    <span>PM Vol &nbsp;<b>{pm_vol}</b></span>
+    <span>PRE Vol &nbsp;<b>{pre_vol}</b></span>
+    <span>PRE Flow &nbsp;<b>{pre_flow}</b></span>
+    <span>INTRA&lt;15 &nbsp;<b>{intra15}</b></span>
+  </div>
+</div>
+"""
+
+    col_info, col_chart = st.columns([1, 2.4])
 
     with col_info:
-        # Header: ticker + block badge + earnings tag
-        badge = f'<span class="block-badge-{block_id}">{BLOCK_LABEL[block_id]}</span>'
-        earn_tag = " 🟡 Earnings" if earnings else ""
-        tv  = f"https://www.tradingview.com/chart/?symbol={t}"
-        fv  = f"https://finviz.com/quote.ashx?t={t}"
-        st.markdown(
-            f"### [{t}]({tv}) &nbsp; {badge}{earn_tag}",
-            unsafe_allow_html=True,
-        )
-        st.caption(r.get("move_info") or "")
-        st.markdown(f"[Finviz]({fv})", unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        def _m(label, val):
-            st.markdown(f"**{label}:** {val}")
-
-        _m("Close",          f"${r['reg_close']:.2f}" if r.get("reg_close") else "—")
-        _m("PM Move",        f"{r['pm_move']:.1f}%"   if r.get("pm_move")   else "—")
-        _m("Gap",            f"{r['gap']:.1f}%"        if r.get("gap")       else "—")
-        _m("PRE Move",       f"{r['pre_move']:.1f}%"  if r.get("pre_move")  else "—")
-        _m("Float",          fmt_vol(r.get("float_shares")))
-        st.markdown("---")
-        _m("PM Vol",         fmt_vol(r.get("pm_vol")))
-        _m("PRE Vol",        fmt_vol(r.get("pre_vol")))
-        _m("PRE Flow",       fmt_vol(r.get("pre_flow")))
-        _m("INTRA до 15:00", fmt_vol(r.get("intra_vol_15")))
+        st.markdown(info_html, unsafe_allow_html=True)
 
     with col_chart:
         if t in bars:
@@ -218,8 +241,6 @@ def render_ticker(r: dict, bars: dict, pm_date: str, next_date: str) -> None:
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("Нет данных для графика.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ── Main render ───────────────────────────────────────────────
