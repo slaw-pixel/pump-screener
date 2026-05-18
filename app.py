@@ -117,8 +117,8 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
         d = datetime.date.fromisoformat(date_str)
         return datetime.datetime(d.year, d.month, d.day, hour, minute, tzinfo=ET)
 
-    # Volume colors: green if close >= open, red otherwise
-    vol_colors = ["#26a69a" if c >= o else "#ef5350"
+    # Volume colors: muted green/red
+    vol_colors = ["#7ec8c2" if c >= o else "#f0918e"
                   for o, c in zip(all_r["open"], all_r["close"])]
 
     fig = make_subplots(
@@ -156,6 +156,23 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
                 annotation_text="Intraday" if row == 1 else "",
                 annotation_position="top left",
                 annotation_font=dict(color="#2d6a2d", size=11),
+                row=row, col=1,
+            )
+
+    # Session boundary vertical lines
+    boundaries = []
+    if not post_r.empty:
+        boundaries.append((_dt(pm_date, 20, 0), "#e0a030", "dash"))
+    if not pre_r.empty:
+        boundaries.append((_dt(next_date, 4, 0), "#4fc3f7", "dash"))
+        boundaries.append((_dt(next_date, 9, 30), "#5cb85c", "dash"))
+
+    for x_val, color, dash in boundaries:
+        for row in (1, 2):
+            fig.add_vline(
+                x=x_val.isoformat(),
+                line_dash=dash, line_color=color,
+                line_width=1, opacity=0.6,
                 row=row, col=1,
             )
 
@@ -310,12 +327,6 @@ def render(result: dict) -> None:
             all_rows.append({**r, "block": block_id})
 
     total = len(all_rows)
-    c0, c1, c2, c3 = st.columns(4)
-    c0.metric("Найдено всего", total)
-    c1.metric("🟡 Блок A", len(blocks["A"]))
-    c2.metric("🔵 Блок B", len(blocks["B"]))
-    c3.metric("🟢 Блок C", len(blocks["C"]))
-
     if total == 0:
         st.info("По заданным параметрам тикеров не найдено.")
         return
