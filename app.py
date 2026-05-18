@@ -71,7 +71,7 @@ def _cell_color(val: float | None, vmax: float, rgb_hi: tuple) -> str:
     return f"background-color: rgb({r},{g},{b}); color: #000"
 
 
-def style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+def style_table(df: pd.DataFrame):
     def pm_color(v):  return _cell_color(v, 200, (255, 160, 40))
     def pre_color(v): return _cell_color(v, 200, (60,  150, 230))
     def gap_color(v): return _cell_color(v, 100, (60,  180, 80))
