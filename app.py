@@ -81,6 +81,7 @@ def _to_df(bars: list) -> pd.DataFrame:
             "ts":      ts,
             "open":    b.open,  "high":  b.high,
             "low":     b.low,   "close": b.close,
+            "volume":  getattr(b, "volume", 0) or 0,
             "minutes": ts.hour * 60 + ts.minute,
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame(
