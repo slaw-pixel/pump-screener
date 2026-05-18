@@ -54,7 +54,7 @@ else:
     d2 = c_d2.date_input("Следующий день", value=today)
     pm_date, next_date, is_today = d1.isoformat(), d2.isoformat(), (d2 == today)
 
-run_btn = c_btn.button("🔍 Запустить", use_container_width=True, type="primary")
+run_btn = c_btn.button("🔍 Запустить", width="stretch", type="primary")
 st.divider()
 
 
@@ -148,6 +148,21 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
                 row=row, col=1,
             )
         # Intraday: no shading (regular session = white background)
+
+    # Session boundary vertical lines (solid, spanning both subplots via yref=paper)
+    def _sep(x_val: datetime.datetime) -> None:
+        fig.add_shape(
+            type="line", xref="x", yref="paper",
+            x0=x_val, x1=x_val, y0=0, y1=1,
+            line=dict(color="#888888", width=1),
+            opacity=0.6,
+        )
+
+    if not post_r.empty:
+        _sep(_dt(pm_date, 20, 0))
+    if not pre_r.empty:
+        _sep(_dt(next_date, 4, 0))
+        _sep(_dt(next_date, 9, 30))
 
     # Candlestick
     fig.add_trace(go.Candlestick(
@@ -324,7 +339,7 @@ def render_ticker(r: dict, bars: dict, pm_date: str, next_date: str) -> None:
         if t in bars:
             fig = build_chart(bars[t][0], bars[t][1], r, pm_date, next_date,
                               float_shares=r.get("float_shares"))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         else:
             st.info("Нет данных для графика.")
 
