@@ -84,7 +84,7 @@ def _to_df(bars: list) -> pd.DataFrame:
             "minutes": ts.hour * 60 + ts.minute,
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame(
-        columns=["ts","open","high","low","close","minutes"])
+        columns=["ts","open","high","low","close","volume","minutes"])
 
 
 def build_chart(bars_pm: list, bars_nx: list, r: dict,
