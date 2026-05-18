@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 from zoneinfo import ZoneInfo
 
 from pump_screener.client import prev_trading_day
@@ -58,6 +59,20 @@ st.divider()
 
 
 # ── Chart ─────────────────────────────────────────────────────
+def _resample(df: pd.DataFrame, minutes: int = 15) -> pd.DataFrame:
+    if df.empty or len(df) < 2:
+        return df
+    agg = (
+        df.set_index("ts").sort_index()
+        .resample(f"{minutes}min", label="left", closed="left")
+        .agg({"open": "first", "high": "max", "low": "min",
+              "close": "last", "volume": "sum"})
+        .dropna(subset=["open"])
+        .reset_index()
+    )
+    return agg
+
+
 def _to_df(bars: list) -> pd.DataFrame:
     rows = []
     for b in bars:
@@ -89,47 +104,83 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     if all_bars.empty:
         return go.Figure()
 
+    # Resample to 15-min candles
+    post_r  = _resample(pm_bars)
+    pre_r   = _resample(pre_bars)
+    intra_r = _resample(intra)
+    all_r   = pd.concat([post_r, pre_r, intra_r])
+    if all_r.empty:
+        return go.Figure()
+
     def _dt(date_str: str, hour: int, minute: int) -> datetime.datetime:
         d = datetime.date.fromisoformat(date_str)
         return datetime.datetime(d.year, d.month, d.day, hour, minute, tzinfo=ET)
 
-    fig = go.Figure()
+    # Volume colors: green if close >= open, red otherwise
+    vol_colors = ["#26a69a" if c >= o else "#ef5350"
+                  for o, c in zip(all_r["open"], all_r["close"])]
 
-    # Session background bands
-    if not pm_bars.empty:
-        fig.add_vrect(
-            x0=_dt(pm_date, 16, 0), x1=_dt(pm_date, 20, 0),
-            fillcolor="rgba(245,166,35,0.10)", line_width=0,
-            annotation_text="PM", annotation_position="top left",
-            annotation_font=dict(color="#b36b00", size=11),
-        )
-    if not pre_bars.empty:
-        fig.add_vrect(
-            x0=_dt(next_date, 4, 0), x1=_dt(next_date, 9, 30),
-            fillcolor="rgba(79,195,247,0.10)", line_width=0,
-            annotation_text="PRE", annotation_position="top left",
-            annotation_font=dict(color="#0277bd", size=11),
-        )
-    if not intra.empty:
-        fig.add_vrect(
-            x0=_dt(next_date, 9, 30), x1=_dt(next_date, 16, 0),
-            fillcolor="rgba(100,200,100,0.05)", line_width=0,
-            annotation_text="Intraday", annotation_position="top left",
-            annotation_font=dict(color="#2d6a2d", size=11),
-        )
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.75, 0.25],
+        vertical_spacing=0.02,
+    )
 
+    # Session background bands (applied to both rows via row=None is not supported,
+    # so we add vrect per row)
+    for row in (1, 2):
+        if not post_r.empty:
+            fig.add_vrect(
+                x0=_dt(pm_date, 16, 0), x1=_dt(pm_date, 20, 0),
+                fillcolor="rgba(245,166,35,0.10)", line_width=0,
+                annotation_text="POST" if row == 1 else "",
+                annotation_position="top left",
+                annotation_font=dict(color="#b36b00", size=11),
+                row=row, col=1,
+            )
+        if not pre_r.empty:
+            fig.add_vrect(
+                x0=_dt(next_date, 4, 0), x1=_dt(next_date, 9, 30),
+                fillcolor="rgba(79,195,247,0.10)", line_width=0,
+                annotation_text="PRE" if row == 1 else "",
+                annotation_position="top left",
+                annotation_font=dict(color="#0277bd", size=11),
+                row=row, col=1,
+            )
+        if not intra_r.empty:
+            fig.add_vrect(
+                x0=_dt(next_date, 9, 30), x1=_dt(next_date, 16, 0),
+                fillcolor="rgba(100,200,100,0.05)", line_width=0,
+                annotation_text="Intraday" if row == 1 else "",
+                annotation_position="top left",
+                annotation_font=dict(color="#2d6a2d", size=11),
+                row=row, col=1,
+            )
+
+    # Candlestick
     fig.add_trace(go.Candlestick(
-        x=all_bars["ts"],
-        open=all_bars["open"], high=all_bars["high"],
-        low=all_bars["low"],   close=all_bars["close"],
+        x=all_r["ts"],
+        open=all_r["open"], high=all_r["high"],
+        low=all_r["low"],   close=all_r["close"],
         name="Price",
         increasing=dict(line=dict(color="#26a69a", width=1), fillcolor="#26a69a"),
         decreasing=dict(line=dict(color="#ef5350", width=1), fillcolor="#ef5350"),
-    ))
+    ), row=1, col=1)
 
+    # Volume bars
+    fig.add_trace(go.Bar(
+        x=all_r["ts"], y=all_r["volume"],
+        marker_color=vol_colors,
+        marker_line_width=0,
+        name="Volume",
+        showlegend=False,
+    ), row=2, col=1)
+
+    # Reference lines
     for level, label, color in [
-        (r.get("pm_high"),  "PM High",  "#b36b00"),
-        (r.get("pre_high"), "PRE High", "#0277bd"),
+        (r.get("pm_high"),  "POST High", "#b36b00"),
+        (r.get("pre_high"), "PRE High",  "#0277bd"),
     ]:
         if level:
             fig.add_hline(
@@ -138,25 +189,23 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
                 annotation_text=f"{label} {level:.2f}",
                 annotation_position="right",
                 annotation_font=dict(color=color, size=11),
+                row=1, col=1,
             )
 
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         template="plotly_white",
-        height=300,
+        height=360,
         margin=dict(l=0, r=80, t=10, b=0),
         legend=dict(visible=False),
         plot_bgcolor="#fafafa",
         paper_bgcolor="#ffffff",
-        xaxis=dict(gridcolor="#ebebeb"),
+        xaxis2=dict(gridcolor="#ebebeb"),
         yaxis=dict(gridcolor="#ebebeb"),
+        yaxis2=dict(gridcolor="#ebebeb", tickformat=".2s"),
     )
-    fig.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat","mon"]),
-            dict(bounds=[20, 4], pattern="hour"),
-        ]
-    )
+    rangebreaks = [dict(bounds=["sat","mon"]), dict(bounds=[20, 4], pattern="hour")]
+    fig.update_xaxes(rangebreaks=rangebreaks)
     return fig
 
 
@@ -167,7 +216,7 @@ def _high_at_badge(r: dict) -> str:
     if pre_h and pm_h and pre_h > pm_h:
         return '<span style="background:#cfe2ff;color:#0a58ca;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=PRE</span>'
     if pm_h:
-        return '<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=PM</span>'
+        return '<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=POST</span>'
     return ""
 
 
@@ -196,33 +245,32 @@ def render_ticker(r: dict, bars: dict, pm_date: str, next_date: str) -> None:
 
     earn_tag   = "&nbsp;🟡 <b>Earnings</b>" if earnings else ""
     badge      = _high_at_badge(r)
-    pm_move_c  = "#c47d10" if r.get("pm_move")  else "#888"
-    pre_move_c = "#0277bd" if r.get("pre_move") else "#888"
+    post_c     = "#c47d10" if r.get("pm_move")  else "#888"
+    pre_c      = "#0277bd" if r.get("pre_move") else "#888"
 
     info_html = f"""
 <div style="border:{border};border-radius:8px;padding:10px 14px;
-            margin-bottom:10px;background:{bg};font-size:0.88rem;line-height:1.5">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            margin-bottom:10px;background:{bg};font-size:0.88rem;line-height:1.6">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
     <a href="{tv}" target="_blank"
-       style="font-size:1.3rem;font-weight:700;text-decoration:none;color:inherit">{t}</a>
+       style="font-size:1.25rem;font-weight:700;text-decoration:none;color:inherit">{t}</a>
     {badge}{earn_tag}
-    <span style="margin-left:auto;font-size:0.78rem">
-      <a href="{tv}" target="_blank">TV</a> &nbsp;
-      <a href="{fv}" target="_blank">FV</a>
+    <span style="margin-left:auto;font-size:0.78rem;white-space:nowrap">
+      <a href="{tv}" target="_blank" style="text-decoration:none">TV</a> &nbsp;
+      <a href="{fv}" target="_blank" style="text-decoration:none">FV</a>
     </span>
   </div>
-  <div style="color:#888;font-size:0.78rem;margin-bottom:6px">{r.get("move_info") or ""}</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 12px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px">
     <span>Close &nbsp;<b>{close_}</b></span>
     <span>Float &nbsp;<b>{flt}</b></span>
-    <span style="color:{pm_move_c}">PM Move &nbsp;<b>{pm_move}</b></span>
+    <span style="color:{post_c}">POST High &nbsp;<b>{pm_move}</b></span>
     <span>Gap &nbsp;<b>{gap}</b></span>
-    <span style="color:{pre_move_c}">PRE Move &nbsp;<b>{pre_move}</b></span>
+    <span style="color:{pre_c}">PRE High &nbsp;<b>{pre_move}</b></span>
     <span></span>
   </div>
   <div style="border-top:1px solid #eee;margin:5px 0"></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 12px">
-    <span>PM Vol &nbsp;<b>{pm_vol}</b></span>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px">
+    <span>POST Vol &nbsp;<b>{pm_vol}</b></span>
     <span>PRE Vol &nbsp;<b>{pre_vol}</b></span>
     <span>PRE Flow &nbsp;<b>{pre_flow}</b></span>
     <span>INTRA&lt;15 &nbsp;<b>{intra15}</b></span>
