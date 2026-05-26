@@ -416,11 +416,18 @@ def render(result: dict) -> None:
     st.markdown(f"**Постмаркет:** {pm_d} &nbsp;→&nbsp; **{nx_d}**",
                 unsafe_allow_html=True)
 
+    # Tickers with reverse splits on pm_date or next_date — exclude as false positives
+    _split_tickers = {
+        s["ticker"] for s in _rev_splits
+        if s.get("execution_date") in (pm_d, nx_d)
+    }
+
     # Merge all blocks into one list, tag each record with its block id
     all_rows = []
     for block_id, rows in blocks.items():
         for r in rows:
-            all_rows.append({**r, "block": block_id})
+            if r["ticker"] not in _split_tickers:
+                all_rows.append({**r, "block": block_id})
 
     total = len(all_rows)
     if total == 0:
