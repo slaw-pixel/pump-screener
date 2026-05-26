@@ -4,9 +4,13 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import exchange_calendars as xcals
+import pandas as pd
 from polygon import RESTClient
 
 from . import config
+
+_NYSE = xcals.get_calendar("XNYS")
 
 _client: RESTClient | None = None
 
@@ -24,9 +28,18 @@ def get_client() -> RESTClient:
     return _client
 
 
+def is_trading_day(d: datetime.date) -> bool:
+    """Return True if d is a NYSE trading day (skips weekends + holidays)."""
+    try:
+        return _NYSE.is_session(pd.Timestamp(d))
+    except Exception:
+        return d.weekday() < 5  # fallback: skip only weekends
+
+
 def prev_trading_day(d: datetime.date) -> datetime.date:
+    """Return the most recent trading day before d (skips weekends + NYSE holidays)."""
     d -= datetime.timedelta(days=1)
-    while d.weekday() >= 5:
+    while not is_trading_day(d):
         d -= datetime.timedelta(days=1)
     return d
 

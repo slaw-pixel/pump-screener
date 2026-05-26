@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Small-cap overnight pump scanner using Polygon.io minute bars"
 requires-python = ">=3.12"
 dependencies = [
+    "exchange-calendars>=4.5",
     "polygon-api-client>=1.14",
     "python-dotenv>=1.0",
     "tzdata>=2024.1",
