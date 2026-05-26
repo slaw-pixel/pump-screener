@@ -44,6 +44,14 @@ def prev_trading_day(d: datetime.date) -> datetime.date:
     return d
 
 
+def next_trading_day(d: datetime.date) -> datetime.date:
+    """Return the next trading day after d (skips weekends + NYSE holidays)."""
+    d += datetime.timedelta(days=1)
+    while not is_trading_day(d):
+        d += datetime.timedelta(days=1)
+    return d
+
+
 def load_tickers() -> list[str]:
     cache_file = config.TICKER_CACHE_FILE
     if os.path.exists(cache_file):
@@ -134,23 +142,25 @@ def has_earnings_news(ticker: str, pm_date: str) -> bool:
     return False
 
 
-def get_splits_today(date_str: str) -> list[dict]:
-    """Return tickers that have a stock split executing on date_str."""
+def get_splits_range(from_date: str, to_date: str) -> list[dict]:
+    """Return tickers with splits executing between from_date and to_date (inclusive)."""
     client = get_client()
     results = []
     try:
         for s in client.list_splits(
-            execution_date_gte=date_str,
-            execution_date_lte=date_str,
-            limit=100,
+            execution_date_gte=from_date,
+            execution_date_lte=to_date,
+            limit=200,
         ):
             split_from = getattr(s, "split_from", None)
             split_to   = getattr(s, "split_to",   None)
+            exec_date  = str(getattr(s, "execution_date", ""))
             results.append({
-                "ticker":     s.ticker,
-                "split_from": split_from,
-                "split_to":   split_to,
-                "reverse":    bool(split_to and split_from and split_to < split_from),
+                "ticker":         s.ticker,
+                "split_from":     split_from,
+                "split_to":       split_to,
+                "execution_date": exec_date,
+                "reverse":        bool(split_to and split_from and split_to < split_from),
             })
     except Exception:
         pass

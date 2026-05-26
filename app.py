@@ -7,7 +7,8 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from zoneinfo import ZoneInfo
 
-from pump_screener.client import get_market_caps, get_splits_today, prev_trading_day
+from pump_screener.client import (get_market_caps, get_splits_range,
+                                   next_trading_day, prev_trading_day)
 from pump_screener.screener import screen as run_screen
 from pump_screener.sessions import fmt_vol
 
@@ -31,10 +32,13 @@ st.markdown("""
 BLOCK_COLOR = {"A": "#856404", "B": "#0a58ca", "C": "#0f5132"}
 BLOCK_LABEL = {"A": "Блок A", "B": "Блок B", "C": "Блок C"}
 
-# ── Splits today ──────────────────────────────────────────────
+# ── Splits upcoming ───────────────────────────────────────────
 @st.cache_data(ttl=3600)
-def _load_reverse_splits(date_str: str) -> list[dict]:
-    all_splits = get_splits_today(date_str)
+def _load_reverse_splits(today_str: str) -> list[dict]:
+    """Load reverse splits for today + next trading day."""
+    today_d    = datetime.date.fromisoformat(today_str)
+    next_d     = next_trading_day(today_d)
+    all_splits = get_splits_range(today_str, next_d.isoformat())
     rev = [s for s in all_splits if s["reverse"]]
     if rev:
         mcaps = get_market_caps([s["ticker"] for s in rev])
@@ -68,18 +72,26 @@ else:
 
 run_btn = c_btn.button("🔍 Запустить", width="stretch", type="primary")
 
-# Reverse splits section — always visible at top
+# Reverse splits section — today + next trading day
 _rev_splits = _load_reverse_splits(today.isoformat())
 if _rev_splits:
-    st.markdown("**🔄 Антисплиты сегодня**")
+    _next_td = next_trading_day(today)
+    st.markdown("**🔄 Антисплиты**")
     cols = st.columns(3)
     for i, s in enumerate(_rev_splits):
         ratio    = f"{s['split_to']}:{s['split_from']}"
         mcap_str = fmt_vol(s.get("market_cap")) if s.get("market_cap") else "—"
+        exec_d   = s.get("execution_date", "")
+        if exec_d == today.isoformat():
+            day_label = "<span style='color:#e65100;font-size:0.75rem'>сегодня</span>"
+        elif exec_d == _next_td.isoformat():
+            day_label = "<span style='color:#1565c0;font-size:0.75rem'>завтра</span>"
+        else:
+            day_label = f"<span style='color:#888;font-size:0.75rem'>{exec_d}</span>"
         with cols[i % 3]:
             st.markdown(
                 f"**{s['ticker']}** &nbsp; `{ratio}` &nbsp; "
-                f"<span style='color:#888'>{mcap_str}</span>",
+                f"<span style='color:#888'>{mcap_str}</span> &nbsp; {day_label}",
                 unsafe_allow_html=True,
             )
 
