@@ -186,6 +186,38 @@ def get_market_caps(tickers: list[str]) -> dict[str, float | None]:
     return results
 
 
+# What can be traded: common stock or ADR listed on these exchanges. Mutual
+# funds (VSEAX, JSVZX...) and OTC names (CTAMF, BSNLF) split too, and filled
+# the antisplit list (22 Oct, user: «большинство тикеров я не торгую»).
+TRADABLE_TYPES = {"CS", "ADRC"}
+TRADABLE_EXCHANGES = {"XNYS", "XNAS", "XASE", "ARCX", "BATS"}
+
+
+def get_listed_details(tickers: list[str]) -> dict[str, dict]:
+    """{ticker: {"market_cap": float | None}} for the tickers that are listed
+    common stock / ADR; the rest (funds, OTC, unknown) are left out."""
+    client = get_client()
+
+    def fetch_one(ticker: str):
+        try:
+            d = client.get_ticker_details(ticker)
+        except Exception:
+            return ticker, None
+        if (getattr(d, "market", None) != "stocks"
+                or getattr(d, "type", None) not in TRADABLE_TYPES
+                or getattr(d, "primary_exchange", None) not in TRADABLE_EXCHANGES):
+            return ticker, None
+        mc = getattr(d, "market_cap", None)
+        return ticker, {"market_cap": float(mc) if mc else None}
+
+    out: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        for ticker, val in pool.map(fetch_one, tickers):
+            if val is not None:
+                out[ticker] = val
+    return out
+
+
 def get_float_shares(tickers: list[str]) -> dict[str, float | None]:
     """Fetch weighted_shares_outstanding for a list of tickers in parallel."""
     client = get_client()

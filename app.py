@@ -7,7 +7,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from zoneinfo import ZoneInfo
 
-from pump_screener.client import (get_market_caps, get_splits_range,
+from pump_screener.client import (get_listed_details, get_splits_range,
                                    next_trading_day, prev_trading_day)
 from pump_screener.screener import screen as run_screen
 from pump_screener.sessions import fmt_vol
@@ -41,9 +41,11 @@ def _load_reverse_splits(today_str: str) -> list[dict]:
     all_splits = get_splits_range(today_str, next_d.isoformat())
     rev = [s for s in all_splits if s["reverse"]]
     if rev:
-        mcaps = get_market_caps([s["ticker"] for s in rev])
+        # Only what can be traded: listed common stock / ADR, no funds, no OTC.
+        listed = get_listed_details([s["ticker"] for s in rev])
+        rev = [s for s in rev if s["ticker"] in listed]
         for s in rev:
-            s["market_cap"] = mcaps.get(s["ticker"])
+            s["market_cap"] = listed[s["ticker"]]["market_cap"]
     return rev
 
 
