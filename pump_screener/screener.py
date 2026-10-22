@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from . import config
 from .client import get_bars, get_float_shares, get_snapshots, has_earnings_news, load_tickers
-from .sessions import SessionData, fmt, fmt_vol, initial_move_label, parse_sessions, pct
+from .sessions import SessionData, fmt, fmt_vol, high_at, initial_move_label, parse_sessions, pct
 
 ET = ZoneInfo("America/New_York")
 
@@ -27,10 +27,74 @@ def _classify(
     pre_flow  = s_nx["pre_moneyflow"]
     intra_h   = s_nx["intra_high"]
     intra_o   = s_nx["intra_open"]
+    early_h   = s_nx["early_high"]   # intraday high 9:30 → HIGH_CUTOFF (may be the high)
+    late_h    = s_nx["late_high"]    # intraday high after HIGH_CUTOFF (must stay ≤ high +10%)
 
     price_ref = intra_o or reg_close
     if not price_ref or not (config.MIN_PRICE <= price_ref <= config.MAX_PRICE):
         return None, {}
+    if intra_o and reg_close and intra_o <= reg_close:
+        return None, {}
+
+    pm_move  = pct(pm_high,  reg_close)
+    pre_move = pct(pre_high, reg_close)
+    gap      = pct(intra_o,  reg_close)
+    check_intra = intraday_started or not is_today
+
+    def _top(*vals: float | None) -> float | None:
+        vals = [v for v in vals if v]
+        return max(vals) if vals else None
+
+    def _holds(high: float | None) -> bool:
+        """After HIGH_CUTOFF intraday must not exceed the high by more than MAX_INTRA_BREAKOUT."""
+        return not check_intra or not late_h or not high or late_h <= high * (1 + config.MAX_INTRA_BREAKOUT)
+
+    # high_time = when the current high was set (used for chronological sort)
+    times = {"PM": s_pm["pm_high_time"], "PRE": s_nx["pre_high_time"], "INTRA": s_nx["early_high_time"]}
+    at = high_at(pm_high, pre_high, early_h)
+    high_time = times.get(at) if at else None
+
+    base = dict(
+        reg_close=reg_close, pm_high=pm_high, pm_move=pm_move, pm_vol=pm_vol,
+        pre_high=pre_high, pre_move=pre_move, pre_vol=pre_vol, pre_flow=pre_flow,
+        intra_h=intra_h, early_high=early_h, early_move=pct(early_h, reg_close),
+        late_high=late_h, gap=gap,
+        intra_vol_15=s_nx["intra_volume_15"],
+        high_time=high_time, high_at=at,
+    )
+
+    # Block A — PM pump, PRE below PM high; high may extend intraday until HIGH_CUTOFF
+    if (
+        pm_high and pm_vol
+        and pm_move and pm_move >= config.MIN_POST_MOVE_PCT_A
+        and gap is not None and gap > 0
+        and (not pre_high or pre_high < pm_high)
+        and _holds(_top(pm_high, early_h))
+        and pre_vol
+        and pre_flow >= config.MIN_PREMKT_FLOW
+    ):
+        return "A", {**base, "sort_key": pm_move}
+
+    # Block B — PRE pump, no prior PM move; high may extend intraday until HIGH_CUTOFF
+    if (
+        pre_high and pre_vol
+        and pre_move and pre_move >= config.MIN_PRE_MOVE_PCT_B
+        and (not pm_move or pm_move < config.MIN_PRE_MOVE_PCT_B)
+        and _holds(_top(pre_high, early_h))
+    ):
+        return "B", {**base, "sort_key": pre_move}
+
+    # Block C — PM pump + PRE continuation; high may extend intraday until HIGH_CUTOFF
+    if (
+        pm_high and pm_vol
+        and pm_move and pm_move >= config.MIN_POST_MOVE_PCT_C
+        and pre_high and pre_vol
+        and pre_high > pm_high
+        and _holds(_top(pre_high, early_h))
+    ):
+        return "C", {**base, "sort_key": pre_move or pm_move}
+
+    return None, {}
     if intra_o and reg_close and intra_o <= reg_close:
         return None, {}
 
@@ -174,7 +238,7 @@ def screen(
         if block:
             record["ticker"] = ticker
             record["move_info"] = initial_move_label(
-                record["pm_high"], record["pre_high"], record["reg_close"]
+                record["pm_high"], record["pre_high"], record["reg_close"], record["early_high"]
             )
             blocks[block].append(record)
             result_bars[ticker] = ticker_bars[ticker]
@@ -250,11 +314,12 @@ def _print_results(
     next_date: str,
 ) -> None:
     sep = "  " + "-" * 72
+    cut = f"{config.HIGH_CUTOFF_HOUR}:{config.HIGH_CUTOFF_MINUTE:02d}"
 
     titles = {
-        "A": f"БЛОК A — PM +{config.MIN_POST_MOVE_PCT_A}%, хай не переписан",
-        "B": f"БЛОК B — PRE +{config.MIN_PRE_MOVE_PCT_B}%, без PM мува, хай не переписан",
-        "C": f"БЛОК C — PM +{config.MIN_POST_MOVE_PCT_C}%, хай переписан в PRE, не в интрадей",
+        "A": f"БЛОК A — PM +{config.MIN_POST_MOVE_PCT_A}%, хай не переписан после {cut}",
+        "B": f"БЛОК B — PRE +{config.MIN_PRE_MOVE_PCT_B}%, без PM мува, хай не переписан после {cut}",
+        "C": f"БЛОК C — PM +{config.MIN_POST_MOVE_PCT_C}%, хай переписан в PRE, не переписан после {cut}",
     }
 
     for block_id, rows in blocks.items():

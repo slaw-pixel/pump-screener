@@ -31,12 +31,15 @@ def analyze_ticker(ticker: str, pm_date: str, next_date: str, *, is_today: bool 
     pre_flow  = s_nx["pre_moneyflow"]
     intra_h   = s_nx["intra_high"]
     intra_o   = s_nx["intra_open"]
+    early_h   = s_nx["early_high"]
+    late_h    = s_nx["late_high"]
+    cut       = f"{config.HIGH_CUTOFF_HOUR}:{config.HIGH_CUTOFF_MINUTE:02d}"
 
     print(f"\n  Данные:")
     print(f"    Regular close {pm_date}:  {fmt(reg_close)}")
     print(f"    PM high {pm_date}:        {fmt(pm_high)}  (объём: {fmt_vol(pm_vol)})")
     print(f"    PRE high {next_date}:     {fmt(pre_high)}  (объём: {fmt_vol(pre_vol)}, поток: {fmt_vol(pre_flow)})")
-    print(f"    Интрадей high {next_date}: {fmt(intra_h)}")
+    print(f"    Интрадей high {next_date}: {fmt(intra_h)}  (до {cut}: {fmt(early_h)}, после {cut}: {fmt(late_h)})")
     print(f"    Гэп при открытии:          {fmt(pct(intra_o, reg_close))}%")
     if pm_high and reg_close:
         print(f"    PM мув от close:           {fmt(pct(pm_high, reg_close))}%")
@@ -48,6 +51,13 @@ def analyze_ticker(ticker: str, pm_date: str, next_date: str, *, is_today: bool 
     pm_move     = pct(pm_high, reg_close)
     pre_move    = pct(pre_high, reg_close)
     gap         = pct(intra_o, reg_close)
+
+    def _top(*vals):
+        vals = [v for v in vals if v]
+        return max(vals) if vals else None
+
+    def _breaks(high) -> bool:
+        return bool(check_intra and late_h and high and late_h > high * (1 + config.MAX_INTRA_BREAKOUT))
 
     # ── Block A ──────────────────────────────────────────────
     print(f"\n  {'─'*60}")
@@ -64,9 +74,9 @@ def analyze_ticker(ticker: str, pm_date: str, next_date: str, *, is_today: bool 
         print(f"    ❌ Нет гэпа вверх: {fmt(gap)}%")
     elif pre_high and pre_high >= pm_high:
         print(f"    ❌ PRE переписал PM хай: {fmt(pre_high)} >= {fmt(pm_high)}")
-    elif check_intra and intra_h and intra_h > pm_high * (1 + config.MAX_INTRA_BREAKOUT):
-        limit = pm_high * (1 + config.MAX_INTRA_BREAKOUT)
-        print(f"    ❌ INTRA пробил PM хай > 10%: {fmt(intra_h)} > {fmt(limit)}")
+    elif _breaks(_top(pm_high, early_h)):
+        limit = _top(pm_high, early_h) * (1 + config.MAX_INTRA_BREAKOUT)
+        print(f"    ❌ INTRA после {cut} пробил хай > 10%: {fmt(late_h)} > {fmt(limit)}")
     elif not pre_vol:
         print(f"    ❌ Нет объёма в премаркете")
     elif pre_flow < config.MIN_PREMKT_FLOW:
@@ -86,9 +96,9 @@ def analyze_ticker(ticker: str, pm_date: str, next_date: str, *, is_today: bool 
         print(f"    ❌ PRE мув {fmt(pre_move)}% < {config.MIN_PRE_MOVE_PCT_B}%")
     elif pm_move and pm_move >= config.MIN_PRE_MOVE_PCT_B:
         print(f"    ❌ Был PM мув {fmt(pm_move)}% (это Блок A или C)")
-    elif check_intra and intra_h and intra_h > pre_high * (1 + config.MAX_INTRA_BREAKOUT):
-        limit = pre_high * (1 + config.MAX_INTRA_BREAKOUT)
-        print(f"    ❌ INTRA пробил PRE хай > 10%: {fmt(intra_h)} > {fmt(limit)}")
+    elif _breaks(_top(pre_high, early_h)):
+        limit = _top(pre_high, early_h) * (1 + config.MAX_INTRA_BREAKOUT)
+        print(f"    ❌ INTRA после {cut} пробил хай > 10%: {fmt(late_h)} > {fmt(limit)}")
     else:
         print(f"    ✅ ПРОХОДИТ!")
 
@@ -106,9 +116,9 @@ def analyze_ticker(ticker: str, pm_date: str, next_date: str, *, is_today: bool 
         print(f"    ❌ Нет премаркет объёма")
     elif pre_high <= pm_high:
         print(f"    ❌ PRE не переписал PM хай: {fmt(pre_high)} <= {fmt(pm_high)}")
-    elif check_intra and intra_h and intra_h > pre_high * (1 + config.MAX_INTRA_BREAKOUT):
-        limit = pre_high * (1 + config.MAX_INTRA_BREAKOUT)
-        print(f"    ❌ INTRA пробил PRE хай > 10%: {fmt(intra_h)} > {fmt(limit)}")
+    elif _breaks(_top(pre_high, early_h)):
+        limit = _top(pre_high, early_h) * (1 + config.MAX_INTRA_BREAKOUT)
+        print(f"    ❌ INTRA после {cut} пробил хай > 10%: {fmt(late_h)} > {fmt(limit)}")
     else:
         print(f"    ✅ ПРОХОДИТ!")
 

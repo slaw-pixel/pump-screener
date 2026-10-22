@@ -273,7 +273,9 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
     # plus a solid blue line at regular close
     pm_high  = r.get("pm_high")
     pre_high = r.get("pre_high")
-    candidates = [(v, lbl) for v, lbl in [(pm_high, "POST High"), (pre_high, "PRE High")] if v]
+    early_high = r.get("early_high")
+    candidates = [(v, lbl) for v, lbl in [(pm_high, "POST High"), (pre_high, "PRE High"),
+                                          (early_high, "INTRA High")] if v]
     if candidates:
         top_level, top_label = max(candidates, key=lambda x: x[0])
         fig.add_hline(
@@ -326,6 +328,8 @@ def build_chart(bars_pm: list, bars_nx: list, r: dict,
 def _high_at_badge(r: dict) -> str:
     pre_h = r.get("pre_high")
     pm_h  = r.get("pm_high")
+    if r.get("high_at") == "INTRA":
+        return '<span style="background:#f8d7da;color:#b02a37;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=INTRA</span>'
     if pre_h and pm_h and pre_h > pm_h:
         return '<span style="background:#cfe2ff;color:#0a58ca;padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">HighAt=PRE</span>'
     if pm_h:

@@ -14,7 +14,8 @@ The screener fetches minute bars for two consecutive trading days and classifies
 |-----------|-------|
 | After-hours move from regular close | ≥ +40% |
 | Pre-market does **not** exceed PM high | ✓ |
-| Intraday does not exceed PM high by more than | +10% |
+| High may be set intraday until | 10:00 ET |
+| After 10:00 intraday does not exceed the high (PM or 9:30–10:00) by more than | +10% |
 | Pre-market money flow | ≥ $2M |
 
 The stock surged after-hours. Next day it opens with a gap but trades below the PM high — potential setup.
@@ -25,7 +26,8 @@ The stock surged after-hours. Next day it opens with a gap but trades below the 
 |-----------|-------|
 | Pre-market move from regular close | ≥ +30% |
 | After-hours move | < 30% (move originated in PRE) |
-| Intraday does not exceed PRE high by more than | +10% |
+| High may be set intraday until | 10:00 ET |
+| After 10:00 intraday does not exceed the high (PRE or 9:30–10:00) by more than | +10% |
 
 Catalyst hit overnight or early morning; the high was set in pre-market and has not been broken intraday.
 
@@ -35,7 +37,8 @@ Catalyst hit overnight or early morning; the high was set in pre-market and has 
 |-----------|-------|
 | After-hours move from regular close | ≥ +30% |
 | Pre-market **exceeds** the PM high | ✓ |
-| Intraday does not exceed PRE high by more than | +10% |
+| High may be set intraday until | 10:00 ET |
+| After 10:00 intraday does not exceed the high (PRE or 9:30–10:00) by more than | +10% |
 
 Strong two-session momentum: after-hours pump followed by pre-market continuation.
 
@@ -107,7 +110,8 @@ All thresholds are in [`pump_screener/config.py`](pump_screener/config.py):
 | `MAX_PRICE`           | 100.0 | Max stock price |
 | `MAX_MARKET_CAP`      | 300M | Max market cap ($) |
 | `MIN_VOLUME`          | 100K | Min daily volume (snapshot pre-filter) |
-| `MAX_INTRA_BREAKOUT`  | 0.10 | Intraday may exceed high by max 10% |
+| `MAX_INTRA_BREAKOUT`  | 0.10 | After the cutoff, intraday may exceed high by max 10% |
+| `HIGH_CUTOFF_HOUR` / `_MINUTE` | 10 / 0 | High may be set until this time ET (incl. intraday 9:30–10:00) |
 | `MIN_PREMKT_FLOW`     | 2M   | Min pre-market money flow ($) |
 | `EXTRA_TICKERS`       | []   | Manually added tickers |
 
