@@ -447,12 +447,19 @@ def render(result: dict) -> None:
     other_rows    = [r for r in all_rows if not r.get("has_earnings")]
 
     st.divider()
+    hidden = sum(len(v) for v in blocks.values()) - total
+    if hidden:
+        st.caption(f"Не показано {hidden}: антисплит в эти дни")
     if earnings_rows:
-        st.markdown("### 🟡 На репорте")
+        st.markdown(f"### 🟡 На репорте ({len(earnings_rows)})")
         for r in earnings_rows:
             render_ticker(r, bars, pm_d, nx_d)
         if other_rows:
             st.divider()
+    if other_rows:
+        # A heading of its own: below «На репорте» these read as missing
+        # (29 Oct: «пишет 4, а показывает 2» — AXG, ATYR were further down).
+        st.markdown(f"### ⚪ Без репорта ({len(other_rows)})")
     for r in other_rows:
         render_ticker(r, bars, pm_d, nx_d)
 
